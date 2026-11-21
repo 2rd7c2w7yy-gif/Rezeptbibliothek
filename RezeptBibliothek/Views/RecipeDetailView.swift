@@ -82,6 +82,7 @@ struct RecipeDetailView: View {
         }
     }
 
+    @MainActor
     private func exportPDF() {
         do {
             pdfURL = try PDFExportService.exportPDF(for: recipe)

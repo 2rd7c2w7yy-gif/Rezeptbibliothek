@@ -151,6 +151,7 @@ struct AIRecipeGeneratorView: View {
         saved = true
     }
 
+    @MainActor
     private func exportPDF() {
         let draft = Recipe(title: extractedTitle, markdown: resultMarkdown, category: category.rawValue)
         pdfURL = try? PDFExportService.exportPDF(for: draft)

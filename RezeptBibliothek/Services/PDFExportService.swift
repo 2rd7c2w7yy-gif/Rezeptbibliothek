@@ -26,6 +26,7 @@ enum PDFExportService {
         }
     }
 
+    @MainActor
     static func exportPDF(for recipe: Recipe) throws -> URL {
         let contentWidth = pageSize.width - 2 * margin
         let renderer = ImageRenderer(
@@ -75,6 +76,7 @@ enum PDFExportService {
     }
 
     #if os(macOS)
+    @MainActor
     static func presentSavePanel(for url: URL) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = url.lastPathComponent
