@@ -47,12 +47,12 @@ enum PDFExportService {
             throw PDFError.contextCreation
         }
 
-        let pageRect = CGRect(origin: .zero, size: pageSize)
+        var pageRect = CGRect(origin: .zero, size: pageSize)
         let contentHeight = pageSize.height - 2 * margin
 
         renderer.render { _, draw in
             for page in 0..<maxPages {
-                context.beginPage(mediaBox: pageRect)
+                context.beginPage(mediaBox: &pageRect)
                 context.saveGState()
                 // Ursprung oben links, y-Achse nach unten (wie SwiftUI)
                 context.translateBy(x: margin, y: pageSize.height - margin)
