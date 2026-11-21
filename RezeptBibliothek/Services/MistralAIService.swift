@@ -21,6 +21,7 @@ struct MistralAIService {
         case http(Int, String)
         case noContent
         case decoding
+        case invalidResponse(String)
 
         var errorDescription: String? {
             switch self {
@@ -34,6 +35,8 @@ struct MistralAIService {
                 return "Die KI hat keine Antwort geliefert."
             case .decoding:
                 return "Die Antwort der API konnte nicht gelesen werden."
+            case .invalidResponse(let preview):
+                return "Antwort der API nicht lesbar. Anfang: \(String(preview.prefix(300)))"
             }
         }
     }
@@ -73,17 +76,16 @@ struct MistralAIService {
         guard (200..<300).contains(http.statusCode) else {
             throw AIError.http(http.statusCode, Self.errorMessage(from: data))
         }
+        let skill: SkillResponse
         do {
-            let skill = try JSONDecoder().decode(SkillResponse.self, from: data)
-            guard let body = skill.definition?.body, !body.isEmpty else {
-                throw AIError.decoding
-            }
-            return (body, skill.version)
-        } catch let error as AIError {
-            throw error
+            skill = try JSONDecoder().decode(SkillResponse.self, from: data)
         } catch {
-            throw AIError.decoding
+            throw AIError.invalidResponse(Self.errorMessage(from: data))
         }
+        guard let body = skill.definition?.body, !body.isEmpty else {
+            throw AIError.invalidResponse("definition.body fehlt. Anfang: " + Self.errorMessage(from: data).prefix(300))
+        }
+        return (body, skill.version)
     }
 
     // MARK: - Chat Completion (POST /v1/chat/completions)
@@ -110,7 +112,7 @@ struct MistralAIService {
     struct ChatResponse: Decodable {
         struct Choice: Decodable {
             struct Message: Decodable {
-                let content: String?
+                let content: MessageContent?
             }
             let message: Message
         }
@@ -119,6 +121,34 @@ struct MistralAIService {
         }
         let choices: [Choice]?
         let error: APIError?
+    }
+
+    // content kann String ODER Array von Content-Parts sein (je nach Modell/API-Version)
+    enum MessageContent: Decodable {
+        case text(String)
+        case parts([Part])
+
+        struct Part: Decodable {
+            let text: String?
+        }
+
+        var string: String {
+            switch self {
+            case .text(let value): return value
+            case .parts(let parts): return parts.compactMap(\.text).joined()
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let value = try? container.decode(String.self) {
+                self = .text(value)
+            } else if let parts = try? container.decode([Part].self) {
+                self = .parts(parts)
+            } else {
+                self = .text("")
+            }
+        }
     }
 
     static func generateRecipe(
@@ -154,8 +184,13 @@ struct MistralAIService {
             let decoded = try? JSONDecoder().decode(ChatResponse.self, from: data)
             throw AIError.http(http.statusCode, decoded?.error?.message ?? Self.errorMessage(from: data))
         }
-        let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
-        guard let content = decoded.choices?.first?.message.content, !content.isEmpty else {
+        let decoded: ChatResponse
+        do {
+            decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+        } catch {
+            throw AIError.invalidResponse(Self.errorMessage(from: data))
+        }
+        guard let content = decoded.choices?.first?.message.content?.string, !content.isEmpty else {
             throw AIError.noContent
         }
         return stripCodeFence(content)
