@@ -11,7 +11,7 @@ struct MistralAIService {
         var skillAlias: String
 
         var effectiveModel: String {
-            model.trimmingCharacters(in: .whitespaces).isEmpty ? Self.defaultModel : model
+            model.trimmingCharacters(in: .whitespaces).isEmpty ? MistralAIService.defaultModel : model
         }
     }
 
