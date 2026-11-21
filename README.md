@@ -39,7 +39,7 @@ In der Rezeptansicht auf **„PDF exportieren“** klicken. Die App rendert das 
 Standardmäßig speichert die App lokal (SwiftData). Für eine gemeinsame Bibliothek über iCloud:
 
 1. In Xcode: Target → **Signing & Capabilities** → **+ Capability** → **CloudKit** hinzufügen (Container `iCloud.<Bundle-ID>` wird automatisch angelegt).
-2. In `RezeptBibliothekApp.swift` das Flag `useCloudKit` auf `true` setzen.
+2. In `RezeptBibliothekApp.swift` die Zeile `ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)` ersetzen durch `ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)`.
 3. Auf allen Geräten mit derselben Apple-ID anmelden. Die Bibliothek synchronisiert dann über iCloud.
 
 ## Projektstruktur
