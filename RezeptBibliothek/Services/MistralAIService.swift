@@ -4,7 +4,7 @@ struct MistralAIService {
     static let baseURL = URL(string: "https://api.mistral.ai")!
     static let defaultModel = "mistral-large-latest"
 
-    struct Settings {
+    struct Settings: Sendable {
         var apiKey: String
         var model: String
         var skillName: String
@@ -56,7 +56,7 @@ struct MistralAIService {
         }
         var components = URLComponents(
             url: baseURL.appendingPathComponent("v2/skills/skill:\(settings.skillName)"),
-            resolvingBaseURL: false
+            resolvingAgainstBaseURL: false
         )!
         if !settings.skillAlias.trimmingCharacters(in: .whitespaces).isEmpty {
             components.queryItems = [URLQueryItem(name: "alias", value: settings.skillAlias)]
