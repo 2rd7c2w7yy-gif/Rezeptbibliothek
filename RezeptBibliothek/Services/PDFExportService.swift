@@ -16,13 +16,9 @@ enum PDFExportService {
 
     enum PDFError: LocalizedError {
         case contextCreation
-        case writeFailed
 
         var errorDescription: String? {
-            switch self {
-            case .contextCreation: return "PDF-Kontext konnte nicht erstellt werden."
-            case .writeFailed: return "PDF-Datei konnte nicht geschrieben werden."
-            }
+            "PDF-Kontext konnte nicht erstellt werden."
         }
     }
 
@@ -38,9 +34,16 @@ enum PDFExportService {
         renderer.isOpaque = true
         renderer.scale = 2
 
-        let data = NSMutableData()
-        guard let consumer = CGDataConsumer(data: data as CFMutableData),
-              let context = CGContext(consumer: consumer, mediaBox: nil) else {
+        let fileName = recipe.displayTitle
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            + ".pdf"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        try? FileManager.default.removeItem(at: url)
+
+        // URL-basierter PDF-Kontext (aktuelle Signatur: init(_:mediaBox:_:))
+        var mediaBox = CGRect(origin: .zero, size: pageSize)
+        guard let context = CGContext(url as CFURL, mediaBox: &mediaBox, nil) else {
             throw PDFError.contextCreation
         }
 
@@ -61,17 +64,7 @@ enum PDFExportService {
                 context.endPage()
             }
         }
-
-        let fileName = recipe.displayTitle
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-            + ".pdf"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        do {
-            try data.write(to: url, options: .atomic)
-        } catch {
-            throw PDFError.writeFailed
-        }
+        context.closePDF()
         return url
     }
 
