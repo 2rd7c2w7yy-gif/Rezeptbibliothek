@@ -5,7 +5,7 @@ struct ContentView: View {
     @State private var selection: Recipe?
 
     var body: some View {
-        NavigationSplitView(selection: $selection) {
+        NavigationSplitView {
             SidebarView(selection: $selection)
         } detail: {
             if let recipe = selection {
