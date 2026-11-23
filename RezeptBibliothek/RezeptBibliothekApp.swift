@@ -33,6 +33,6 @@ struct RezeptBibliothekApp: App {
         .modelContainer(container)
         .defaultPosition(.center)
         .windowResizability(.contentSize)
-        .defaultSize(width: 680, height: 800)
+        .defaultSize(width: 920, height: 800)
     }
 }

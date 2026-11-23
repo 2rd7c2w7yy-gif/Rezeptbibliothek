@@ -43,6 +43,7 @@ struct AIRecipeGeneratorView: View {
     }
 
     private var isRefining: Bool { genState.existingRecipe != nil }
+    private var isBusy: Bool { phase == .loadingSkill || phase == .generating }
 
     private var settings: MistralAIService.Settings {
         MistralAIService.Settings(
@@ -58,11 +59,12 @@ struct AIRecipeGeneratorView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationSplitView {
+            // Linke Spalte: Steuerung (immer sichtbar, ohne Scrollen)
             Form {
                 Section(isRefining ? "Änderungswunsch an die KI" : "Dein Wunsch an die KI") {
                     TextEditor(text: $wish)
-                        .frame(minHeight: 110)
+                        .frame(minHeight: 90)
                     Text(isRefining
                          ? "z. B. „weniger scharf, mehr Knoblauch, Backzeit 10 Min. kürzer“"
                          : "z. B. „Eine vegane Linsensuppe für 4 Personen, scharf, in 30 Minuten“")
@@ -77,7 +79,7 @@ struct AIRecipeGeneratorView: View {
                     Button {
                         Task { await generate() }
                     } label: {
-                        if phase == .loadingSkill || phase == .generating {
+                        if isBusy {
                             HStack {
                                 ProgressView()
                                 Text(statusMessage)
@@ -86,9 +88,7 @@ struct AIRecipeGeneratorView: View {
                             Label(isRefining ? "Überarbeiten (KI)" : "Rezept generieren", systemImage: "sparkles")
                         }
                     }
-                    .disabled(wish.trimmingCharacters(in: .whitespaces).isEmpty
-                               || phase == .loadingSkill
-                               || phase == .generating)
+                    .disabled(wish.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
                 }
 
                 if let errorMessage {
@@ -101,11 +101,6 @@ struct AIRecipeGeneratorView: View {
                 }
 
                 if phase == .done {
-                    Section("Vorschau – \(extractedTitle)") {
-                        MarkdownContentView(markdown: resultMarkdown)
-                    }
-
-                    // Weitere KI-Befehle zur Überarbeitung des angezeigten Rezepts
                     Section("Weiter überarbeiten (KI)") {
                         TextEditor(text: $revisionWish)
                             .frame(minHeight: 60)
@@ -115,7 +110,7 @@ struct AIRecipeGeneratorView: View {
                         Button {
                             Task { await revise() }
                         } label: {
-                            if phase == .loadingSkill || phase == .generating {
+                            if isBusy {
                                 HStack {
                                     ProgressView()
                                     Text(statusMessage)
@@ -124,9 +119,7 @@ struct AIRecipeGeneratorView: View {
                                 Label("Änderung mit KI anwenden", systemImage: "arrow.triangle.2.circlepath")
                             }
                         }
-                        .disabled(revisionWish.trimmingCharacters(in: .whitespaces).isEmpty
-                                   || phase == .loadingSkill
-                                   || phase == .generating)
+                        .disabled(revisionWish.trimmingCharacters(in: .whitespaces).isEmpty || isBusy)
                     }
 
                     Section {
@@ -145,28 +138,45 @@ struct AIRecipeGeneratorView: View {
                         } label: {
                             Label("Erneut generieren", systemImage: "arrow.clockwise")
                         }
-                        .disabled(phase == .loadingSkill || phase == .generating)
+                        .disabled(isBusy)
                     }
                 }
             }
-            .navigationTitle(isRefining ? "Rezept überarbeiten (KI)" : "Neues Rezept mit KI")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Schließen") {
-                        genState.reset()
-                        dismissWindow(id: "ai-generator")
-                    }
+            .formStyle(.grouped)
+            .navigationTitle(isRefining ? "Rezept überarbeiten" : "Neues Rezept mit KI")
+        } detail: {
+            // Rechte Spalte: Vorschau
+            if phase == .done && !resultMarkdown.isEmpty {
+                ScrollView {
+                    MarkdownContentView(markdown: resultMarkdown)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .navigationTitle("Vorschau – \(extractedTitle)")
+            } else {
+                ContentUnavailableView {
+                    Label(isRefining ? "Rezept überarbeiten" : "Neues Rezept mit KI", systemImage: "sparkles")
+                } description: {
+                    Text("Links einen Wunsch eingeben und auf „\(isRefining ? "Überarbeiten (KI)" : "Rezept generieren")“ klicken.")
                 }
             }
-            .onAppear {
-                if let existing = genState.existingMarkdown, !existing.isEmpty {
-                    resultMarkdown = existing
-                    phase = .done
-                    wish = ""
-                } else {
-                    resultMarkdown = ""
-                    phase = .idle
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Schließen") {
+                    genState.reset()
+                    dismissWindow(id: "ai-generator")
                 }
+            }
+        }
+        .onAppear {
+            if let existing = genState.existingMarkdown, !existing.isEmpty {
+                resultMarkdown = existing
+                phase = .done
+                wish = ""
+            } else {
+                resultMarkdown = ""
+                phase = .idle
             }
         }
     }
