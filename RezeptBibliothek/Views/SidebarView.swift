@@ -3,6 +3,8 @@ import SwiftData
 
 struct SidebarView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
+    @Environment(GeneratorState.self) private var genState
     @Query(sort: \Recipe.createdAt, order: .reverse) private var recipes: [Recipe]
 
     @Binding var selection: Recipe?
@@ -11,7 +13,6 @@ struct SidebarView: View {
     @State private var category: RecipeCategory = .all
     @State private var favoritesOnly = false
     @State private var sort: SortOrder = .newest
-    @State private var showGenerator = false
     @State private var showSettings = false
 
     enum SortOrder: String, CaseIterable, Identifiable {
@@ -93,14 +94,12 @@ struct SidebarView: View {
                     Label("Einstellungen", systemImage: "gearshape")
                 }
                 Button {
-                    showGenerator = true
+                    genState.reset()
+                    openWindow(id: "ai-generator")
                 } label: {
                     Label("Neues Rezept mit KI", systemImage: "sparkles")
                 }
             }
-        }
-        .sheet(isPresented: $showGenerator) {
-            AIRecipeGeneratorView()
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()

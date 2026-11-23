@@ -3,6 +3,8 @@ import SwiftData
 
 struct RecipeDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
+    @Environment(GeneratorState.self) private var genState
     @Bindable var recipe: Recipe
 
     @State private var showEdit = false
@@ -27,6 +29,14 @@ struct RecipeDetailView: View {
                 } label: {
                     Image(systemName: recipe.isFavorite ? "star.fill" : "star")
                         .foregroundStyle(.yellow)
+                }
+                Button {
+                    genState.existingRecipe = recipe
+                    genState.existingMarkdown = recipe.markdown
+                    genState.existingTitle = recipe.title
+                    openWindow(id: "ai-generator")
+                } label: {
+                    Label("Mit KI überarbeiten", systemImage: "wand.and.stars")
                 }
                 Button {
                     showEdit = true

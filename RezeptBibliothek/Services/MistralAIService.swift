@@ -156,6 +156,25 @@ struct MistralAIService {
         systemPrompt: String,
         settings: Settings
     ) async throws -> String {
+        try await chatCompletion(systemPrompt: systemPrompt, userMessage: userWish, settings: settings)
+    }
+
+    /// Überarbeitet ein bestehendes Rezept anhand eines Änderungswunschs (z. B. "weniger scharf").
+    static func generateRevision(
+        existingMarkdown: String,
+        instruction: String,
+        systemPrompt: String,
+        settings: Settings
+    ) async throws -> String {
+        let userMessage = "Überarbeite das folgende Rezept strikt gemäß diesem Änderungswunsch. Antworte ausschließlich mit dem vollständigen, überarbeiteten Rezept im Markdown-Format (gleiche Struktur wie das Original: Titel als #, Abschnitte, Zutatenliste, nummerierte Schritte).\n\nÄnderungswunsch:\n\(instruction)\n\nAktuelles Rezept:\n\(existingMarkdown)"
+        return try await chatCompletion(systemPrompt: systemPrompt, userMessage: userMessage, settings: settings)
+    }
+
+    private static func chatCompletion(
+        systemPrompt: String,
+        userMessage: String,
+        settings: Settings
+    ) async throws -> String {
         guard !settings.apiKey.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw AIError.missingAPIKey
         }
@@ -169,7 +188,7 @@ struct MistralAIService {
             model: settings.effectiveModel,
             messages: [
                 ChatMessage(role: "system", content: systemPrompt),
-                ChatMessage(role: "user", content: userWish),
+                ChatMessage(role: "user", content: userMessage),
             ],
             temperature: 0.4,
             maxTokens: 4096

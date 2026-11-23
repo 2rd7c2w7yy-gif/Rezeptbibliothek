@@ -1,22 +1,39 @@
 import SwiftUI
 import SwiftData
+import Observation
+
+/// Gemeinsamer Zustand, über den das KI-Fenster geöffnet wird –
+/// leer für ein neues Rezept, gefüllt für eine Überarbeitung.
+@Observable
+final class GeneratorState {
+    var existingRecipe: Recipe?
+    var existingMarkdown: String?
+    var existingTitle: String?
+
+    func reset() {
+        existingRecipe = nil
+        existingMarkdown = nil
+        existingTitle = nil
+    }
+}
 
 struct AIRecipeGeneratorView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(GeneratorState.self) private var genState
 
     @AppStorage("aiModel") private var aiModel = MistralAIService.defaultModel
     @AppStorage("skillName") private var skillName = "rezepte-thermomix"
     @AppStorage("skillAlias") private var skillAlias = "main"
 
     @State private var wish = ""
+    @State private var revisionWish = ""
     @State private var category: RecipeCategory = .general
     @State private var phase: Phase = .idle
     @State private var statusMessage = ""
     @State private var resultMarkdown = ""
     @State private var errorMessage: String?
     @State private var saved = false
-    @State private var pdfURL: URL?
 
     enum Phase {
         case idle
@@ -24,6 +41,8 @@ struct AIRecipeGeneratorView: View {
         case generating
         case done
     }
+
+    private var isRefining: Bool { genState.existingRecipe != nil }
 
     private var settings: MistralAIService.Settings {
         MistralAIService.Settings(
@@ -41,10 +60,12 @@ struct AIRecipeGeneratorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Dein Wunsch an die KI") {
+                Section(isRefining ? "Änderungswunsch an die KI" : "Dein Wunsch an die KI") {
                     TextEditor(text: $wish)
                         .frame(minHeight: 110)
-                    Text("z. B. „Eine vegane Linsensuppe für 4 Personen, scharf, in 30 Minuten“")
+                    Text(isRefining
+                         ? "z. B. „weniger scharf, mehr Knoblauch, Backzeit 10 Min. kürzer“"
+                         : "z. B. „Eine vegane Linsensuppe für 4 Personen, scharf, in 30 Minuten“")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Picker("Kategorie", selection: $category) {
@@ -62,7 +83,7 @@ struct AIRecipeGeneratorView: View {
                                 Text(statusMessage)
                             }
                         } else {
-                            Label("Rezept generieren", systemImage: "sparkles")
+                            Label(isRefining ? "Überarbeiten (KI)" : "Rezept generieren", systemImage: "sparkles")
                         }
                     }
                     .disabled(wish.trimmingCharacters(in: .whitespaces).isEmpty
@@ -75,6 +96,7 @@ struct AIRecipeGeneratorView: View {
                         Text(errorMessage)
                             .foregroundStyle(.red)
                             .font(.footnote)
+                            .textSelection(.enabled)
                     }
                 }
 
@@ -82,36 +104,68 @@ struct AIRecipeGeneratorView: View {
                     Section("Vorschau – \(extractedTitle)") {
                         MarkdownContentView(markdown: resultMarkdown)
                     }
+
+                    // Weitere KI-Befehle zur Überarbeitung des angezeigten Rezepts
+                    Section("Weiter überarbeiten (KI)") {
+                        TextEditor(text: $revisionWish)
+                            .frame(minHeight: 60)
+                        Text("z. B. „noch saftiger“, „Sauce separat“, „für 6 Personen“")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Button {
+                            Task { await revise() }
+                        } label: {
+                            if phase == .loadingSkill || phase == .generating {
+                                HStack {
+                                    ProgressView()
+                                    Text(statusMessage)
+                                }
+                            } else {
+                                Label("Änderung mit KI anwenden", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                        }
+                        .disabled(revisionWish.trimmingCharacters(in: .whitespaces).isEmpty
+                                   || phase == .loadingSkill
+                                   || phase == .generating)
+                    }
+
                     Section {
                         Button {
                             save()
                         } label: {
-                            Label(saved ? "In der Bibliothek gespeichert" : "In Bibliothek speichern", systemImage: saved ? "checkmark.circle.fill" : "tray.and.arrow.down")
+                            Label(saved
+                                  ? "Gespeichert"
+                                  : (isRefining ? "Rezept aktualisieren" : "In Bibliothek speichern"),
+                                  systemImage: saved ? "checkmark.circle.fill" : "tray.and.arrow.down")
                         }
-                        .disabled(saved)
+                        .disabled(saved || resultMarkdown.isEmpty)
 
-                        Button {
-                            exportPDF()
-                        } label: {
-                            Label("Als PDF exportieren", systemImage: "doc.richtext")
-                        }
-                        if let url = pdfURL {
-                            ShareLink(item: url) {
-                                Label("PDF teilen", systemImage: "square.and.arrow.up")
-                            }
-                        }
                         Button {
                             Task { await generate() }
                         } label: {
                             Label("Erneut generieren", systemImage: "arrow.clockwise")
                         }
+                        .disabled(phase == .loadingSkill || phase == .generating)
                     }
                 }
             }
-            .navigationTitle("Neues Rezept mit KI")
+            .navigationTitle(isRefining ? "Rezept überarbeiten (KI)" : "Neues Rezept mit KI")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Schließen") { dismiss() }
+                    Button("Schließen") {
+                        genState.reset()
+                        dismissWindow(id: "ai-generator")
+                    }
+                }
+            }
+            .onAppear {
+                if let existing = genState.existingMarkdown, !existing.isEmpty {
+                    resultMarkdown = existing
+                    phase = .done
+                    wish = ""
+                } else {
+                    resultMarkdown = ""
+                    phase = .idle
                 }
             }
         }
@@ -120,19 +174,55 @@ struct AIRecipeGeneratorView: View {
     private func generate() async {
         errorMessage = nil
         saved = false
-        pdfURL = nil
-        resultMarkdown = ""
         phase = .loadingSkill
         statusMessage = "Skill „\(skillName)“ wird aus dem Studio geladen …"
         do {
             let (prompt, source) = try await SkillProvider.systemPrompt(for: settings)
             phase = .generating
-            statusMessage = "Rezept wird erstellt … (\(source))"
-            resultMarkdown = try await MistralAIService.generateRecipe(
-                userWish: wish,
+            statusMessage = isRefining
+                ? "Rezept wird überarbeitet … (\(source))"
+                : "Rezept wird erstellt … (\(source))"
+            let result: String
+            if isRefining {
+                let base = resultMarkdown.isEmpty ? (genState.existingMarkdown ?? "") : resultMarkdown
+                result = try await MistralAIService.generateRevision(
+                    existingMarkdown: base,
+                    instruction: wish,
+                    systemPrompt: prompt,
+                    settings: settings
+                )
+            } else {
+                result = try await MistralAIService.generateRecipe(
+                    userWish: wish,
+                    systemPrompt: prompt,
+                    settings: settings
+                )
+            }
+            resultMarkdown = result
+            phase = .done
+        } catch {
+            phase = .idle
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func revise() async {
+        errorMessage = nil
+        guard !resultMarkdown.isEmpty else { return }
+        phase = .loadingSkill
+        statusMessage = "Skill „\(skillName)“ wird geladen …"
+        do {
+            let (prompt, source) = try await SkillProvider.systemPrompt(for: settings)
+            phase = .generating
+            statusMessage = "KI überarbeitet das Rezept … (\(source))"
+            let revised = try await MistralAIService.generateRevision(
+                existingMarkdown: resultMarkdown,
+                instruction: revisionWish,
                 systemPrompt: prompt,
                 settings: settings
             )
+            resultMarkdown = revised
+            revisionWish = ""
             phase = .done
         } catch {
             phase = .idle
@@ -141,20 +231,26 @@ struct AIRecipeGeneratorView: View {
     }
 
     private func save() {
-        let recipe = Recipe(
-            title: extractedTitle,
-            markdown: resultMarkdown,
-            category: category.rawValue
-        )
-        modelContext.insert(recipe)
-        try? modelContext.save()
+        guard !resultMarkdown.isEmpty else { return }
+        if let existing = genState.existingRecipe {
+            existing.markdown = resultMarkdown
+            if !extractedTitle.isEmpty {
+                existing.title = extractedTitle
+            }
+            existing.category = category.rawValue
+            try? modelContext.save()
+        } else {
+            let recipe = Recipe(
+                title: extractedTitle,
+                markdown: resultMarkdown,
+                category: category.rawValue
+            )
+            modelContext.insert(recipe)
+            try? modelContext.save()
+        }
         saved = true
-    }
-
-    @MainActor
-    private func exportPDF() {
-        let draft = Recipe(title: extractedTitle, markdown: resultMarkdown, category: category.rawValue)
-        pdfURL = try? PDFExportService.exportPDF(for: draft)
+        genState.reset()
+        dismissWindow(id: "ai-generator")
     }
 
     static func extractTitle(from markdown: String) -> String {
