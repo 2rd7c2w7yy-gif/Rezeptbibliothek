@@ -192,7 +192,7 @@ struct MistralAIService {
         }
         guard let content = decoded.choices?.first?.message.content?.string, !content.isEmpty else {
             let preview = Self.errorMessage(from: data)
-            let apiMessage = decoded.error?.message.map { " API-Fehler: \\($0)." } ?? ""
+            let apiMessage = decoded.error?.message.map { " API-Fehler: \($0)." } ?? ""
             throw AIError.invalidResponse("kein Inhalt in choices.\(apiMessage) Roh-Antwort: \(String(preview.prefix(400)))")
         }
         return stripCodeFence(content)
