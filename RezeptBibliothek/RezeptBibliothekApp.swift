@@ -14,8 +14,7 @@ struct RezeptBibliothekApp: App {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let storeURL = dir.appendingPathComponent("RezeptBibliothek.sqlite")
 
-        var configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        configuration.url = storeURL
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
 
         do {
             container = try ModelContainer(for: schema, configurations: configuration)
