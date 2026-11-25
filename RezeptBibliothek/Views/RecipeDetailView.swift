@@ -14,9 +14,18 @@ struct RecipeDetailView: View {
 
     var body: some View {
         ScrollView {
-            MarkdownContentView(markdown: recipe.markdown)
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Label(recipe.deviceEnum.rawValue, systemImage: "cpu")
+                    Text("·")
+                    Text(recipe.category)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                MarkdownContentView(markdown: recipe.markdown)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(recipe.displayTitle)
         #if os(iOS)

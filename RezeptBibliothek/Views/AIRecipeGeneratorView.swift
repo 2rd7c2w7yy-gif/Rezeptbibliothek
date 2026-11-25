@@ -25,6 +25,7 @@ struct AIRecipeGeneratorView: View {
     @AppStorage("aiModel") private var aiModel = MistralAIService.defaultModel
     @AppStorage("skillName") private var skillName = "rezepte-thermomix"
     @AppStorage("skillAlias") private var skillAlias = "main"
+    @AppStorage("cookingDevice") private var deviceRaw = CookingDevice.thermomix.rawValue
 
     @State private var wish = ""
     @State private var revisionWish = ""
@@ -43,6 +44,8 @@ struct AIRecipeGeneratorView: View {
     }
 
     private var isRefining: Bool { genState.existingRecipe != nil }
+
+    private var device: CookingDevice { CookingDevice.from(raw: deviceRaw) }
     private var isBusy: Bool { phase == .loadingSkill || phase == .generating }
 
     private var settings: MistralAIService.Settings {
@@ -62,6 +65,13 @@ struct AIRecipeGeneratorView: View {
         NavigationSplitView {
             // Linke Spalte: Steuerung (immer sichtbar, ohne Scrollen)
             Form {
+                Section("Gerät") {
+                    Picker("Gerät", selection: $deviceRaw) {
+                        ForEach(CookingDevice.allCases) { Text($0.shortLabel).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Section(isRefining ? "Änderungswunsch an die KI" : "Dein Wunsch an die KI") {
                     TextEditor(text: $wish)
                         .frame(minHeight: 90)
@@ -187,7 +197,7 @@ struct AIRecipeGeneratorView: View {
         phase = .loadingSkill
         statusMessage = "Skill „\(skillName)“ wird aus dem Studio geladen …"
         do {
-            let (prompt, source) = try await SkillProvider.systemPrompt(for: settings)
+            let (prompt, source) = try await SkillProvider.systemPrompt(for: settings, device: device)
             phase = .generating
             statusMessage = isRefining
                 ? "Rezept wird überarbeitet … (\(source))"
@@ -222,7 +232,7 @@ struct AIRecipeGeneratorView: View {
         phase = .loadingSkill
         statusMessage = "Skill „\(skillName)“ wird geladen …"
         do {
-            let (prompt, source) = try await SkillProvider.systemPrompt(for: settings)
+            let (prompt, source) = try await SkillProvider.systemPrompt(for: settings, device: device)
             phase = .generating
             statusMessage = "KI überarbeitet das Rezept … (\(source))"
             let revised = try await MistralAIService.generateRevision(
@@ -248,12 +258,14 @@ struct AIRecipeGeneratorView: View {
                 existing.title = extractedTitle
             }
             existing.category = category.rawValue
+            existing.device = deviceRaw
             try? modelContext.save()
         } else {
             let recipe = Recipe(
                 title: extractedTitle,
                 markdown: resultMarkdown,
-                category: category.rawValue
+                category: category.rawValue,
+                device: deviceRaw
             )
             modelContext.insert(recipe)
             try? modelContext.save()

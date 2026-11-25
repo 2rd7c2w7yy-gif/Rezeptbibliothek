@@ -6,16 +6,16 @@ enum SkillProvider {
     static let fallbackResourceName = "FallbackSkill"
     static let fallbackDescription = "Verwende diesen Skill, wenn der Nutzer ein Rezept für den Thermomix verlangt."
 
-    static func systemPrompt(for settings: MistralAIService.Settings) async throws -> (prompt: String, source: String) {
+    static func systemPrompt(for settings: MistralAIService.Settings, device: CookingDevice) async throws -> (prompt: String, source: String) {
         do {
             let skill = try await MistralAIService.fetchSkill(settings: settings)
             let source = skill.version.map { "Mistral Studio, Version \($0)" } ?? "Mistral Studio"
-            return (compose(body: skill.body, description: nil), source)
+            return (compose(body: skill.body, description: nil, device: device), source)
         } catch let error as MistralAIService.AIError {
             if case .missingAPIKey = error { throw error }
             if let fallback = loadFallback(), !fallback.isEmpty {
                 return (
-                    compose(body: fallback, description: fallbackDescription),
+                    compose(body: fallback, description: fallbackDescription, device: device),
                     "Eingebettete Kopie (Studio nicht erreichbar)"
                 )
             }
@@ -30,7 +30,7 @@ enum SkillProvider {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
-    private static func compose(body: String, description: String?) -> String {
+    private static func compose(body: String, description: String?, device: CookingDevice) -> String {
         var prompt = ""
         if let description, !description.isEmpty {
             prompt += "# Skill\n\(description)\n\n"
@@ -42,6 +42,9 @@ enum SkillProvider {
         # Zusatz für die API-Nutzung
         Gib ausschließlich das fertige Rezept als Markdown-Dokument zurück (Rezepttitel als H1).
         Keine Einleitung, keine Erklärung, kein Kommentar außerhalb des Markdowns.
+
+        # Gerät
+        \(device.promptInstruction)
         """
         return prompt
     }

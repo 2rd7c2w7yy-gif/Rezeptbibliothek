@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage("aiModel") private var aiModel = MistralAIService.defaultModel
     @AppStorage("skillName") private var skillName = "rezepte-thermomix"
     @AppStorage("skillAlias") private var skillAlias = "main"
+    @AppStorage("cookingDevice") private var deviceRaw = CookingDevice.thermomix.rawValue
 
     @State private var message: String?
     @State private var skillInfo: String?
@@ -36,6 +37,15 @@ struct SettingsView: View {
                     }
                     Link("API-Key in der Mistral Console erstellen", destination: URL(string: "https://console.mistral.ai")!)
                     Text("Der Key wird nur lokal im Schlüsselbund gespeichert und direkt an api.mistral.ai gesendet.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Gerät") {
+                    Picker("Gerät", selection: $deviceRaw) {
+                        ForEach(CookingDevice.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                    }
+                    Text("Bestimmt, für welches Gerät die KI das Rezept formuliert (z. B. TM6/TM7-Schritte oder freies Kochen).")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

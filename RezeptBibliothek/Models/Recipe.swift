@@ -6,6 +6,7 @@ final class Recipe {
     var title: String
     var markdown: String
     var category: String
+    var device: String
     var isFavorite: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -14,15 +15,21 @@ final class Recipe {
         title: String,
         markdown: String,
         category: String = RecipeCategory.general.rawValue,
+        device: String = CookingDevice.thermomix.rawValue,
         isFavorite: Bool = false,
         createdAt: Date = .now
     ) {
         self.title = title
         self.markdown = markdown
         self.category = category
+        self.device = device
         self.isFavorite = isFavorite
         self.createdAt = createdAt
         self.updatedAt = createdAt
+    }
+
+    var deviceEnum: CookingDevice {
+        CookingDevice.from(raw: device)
     }
 
     var displayTitle: String {
@@ -31,6 +38,38 @@ final class Recipe {
 
     var blocks: [MarkdownBlock] {
         MarkdownParser.parse(markdown)
+    }
+}
+
+/// Küchengerät, für das ein Rezept gedacht ist – steuert die KI-Generierung.
+enum CookingDevice: String, CaseIterable, Identifiable, Codable, Sendable {
+    case free = "Freies Kochen"
+    case thermomix = "Thermomix (TM6/TM7)"
+    case monsieurCuisine = "Lidl Monsieur Cuisine"
+
+    var id: String { rawValue }
+
+    var shortLabel: String {
+        switch self {
+        case .free: return "Frei"
+        case .thermomix: return "TM6/TM7"
+        case .monsieurCuisine: return "Monsieur Cuisine"
+        }
+    }
+
+    var promptInstruction: String {
+        switch self {
+        case .free:
+            return "Gerät: Freies Kochen (Herd, Topf, Pfanne – kein elektrisches Küchengerät). Formuliere alle Zubereitungsschritte als normale Herd-/Topf-Schritte ohne Gerät."
+        case .thermomix:
+            return "Gerät: Thermomix TM6/TM7. Formuliere die Zubereitung als TM-Schritte mit Temperatur (°C), Stufe und Zeit (z. B. „3 Min. | 120 °C | Stufe 1“), wie im Skill beschrieben."
+        case .monsieurCuisine:
+            return "Gerät: Lidl Monsieur Cuisine (Connect). Formuliere die Zubereitung als Monsieur-Cuisine-Schritte mit den Begriffen des Geräts (z. B. „Rühren“, „Dämpfen“, „Kneten“, „Garen“ mit Temperatur, Stufe und Zeit)."
+        }
+    }
+
+    static func from(raw: String) -> CookingDevice {
+        CookingDevice(rawValue: raw) ?? .thermomix
     }
 }
 
