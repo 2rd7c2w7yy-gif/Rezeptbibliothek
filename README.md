@@ -80,3 +80,4 @@ RezeptBibliothek/
 - Modell und Skill sind in den Einstellungen konfigurierbar (Standard-Modell: `mistral-large-latest`).
 - Der Skill wird mit Alias `main` geladen – so kannst du in Studio neue Versionen testen und über den Alias freigeben, ohne die App zu ändern.
 - Der System-Prompt ergänzt den Skill um eine API-spezifische Anweisung („nur das Markdown-Rezept zurückgeben“), damit in der App keine Chat-Einleitung um das Rezept herum entsteht.
+- **Store-Migration**: Beim Schema-Wechsel (neue Modell-Felder) legt die App den lokalen SwiftData-Store automatisch neu an (Seed-Beispielrezept inklusive). Hinweis: lokal gespeicherte Rezepte aus älteren App-Versionen werden dabei zurückgesetzt.

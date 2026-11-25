@@ -8,11 +8,30 @@ struct RezeptBibliothekApp: App {
 
     init() {
         let schema = Schema([Recipe.self])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        let dir = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let storeURL = dir.appendingPathComponent("RezeptBibliothek.sqlite")
+
+        var configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        configuration.url = storeURL
+
         do {
             container = try ModelContainer(for: schema, configurations: configuration)
         } catch {
-            fatalError("ModelContainer konnte nicht erstellt werden: \(error)")
+            // Schema-Änderung (z. B. neues Modell-Feld): alten Store samt WAL/SHM entfernen
+            // und leer neu anlegen (Seed-Daten werden danach wieder eingespielt).
+            print("ModelContainer-Fehler, starte mit leerem Store neu: \(error)")
+            let base = storeURL.deletingPathExtension().path + ".sqlite"
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(atPath: base + suffix)
+            }
+            do {
+                container = try ModelContainer(for: schema, configurations: configuration)
+            } catch {
+                fatalError("ModelContainer konnte nicht erstellt werden: \(error)")
+            }
         }
         SeedData.ensureSeeded(context: container.mainContext)
     }
