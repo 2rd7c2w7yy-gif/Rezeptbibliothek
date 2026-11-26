@@ -633,8 +633,8 @@ function viewLogin() {
       <input id="login-token" type="password" placeholder="github_pat_…" autocomplete="off">
       <div class="hint">
         Token erstellen: <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>
-        → „Fine-grained tokens“ → „Generate new token“ → Repository access: <b>All repositories</b>,
-        Repository permissions: <b>Contents: Read and write</b>, <b>Metadata: Read-only</b>, <b>Administration: Read and write</b> (für Gruppeneinladungen); <b>Account permissions → Gists: Read and write</b> (eigene Rezepte liegen in einem privaten Gist).
+        → „Tokens (classic)“ → „Generate new token (classic)“ → Scopes: <b>☑ repo</b> und <b>☑ gist</b> → „Generate token“.
+        (Fine-grained geht auch: Repository access „All repositories“, Permissions Contents RW + Administration RW, Account permissions Gists RW.)
         Der Token bleibt nur in diesem Browser-Tab (sessionStorage) und wird nur an api.github.com gesendet.
       </div>
     </div>

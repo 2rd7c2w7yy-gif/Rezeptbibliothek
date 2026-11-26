@@ -8,7 +8,7 @@ Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral 
 
 Im Ordner `docs/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
 
-- **Anmeldung**: GitHub Personal Access Token (fine-grained, Repos: Contents RW, Metadata R, Administration RW für Gruppen; Account-Berechtigung **Gists: Read and write** für die persönlichen Rezepte) – wird nur im `sessionStorage` gehalten und nur an `api.github.com` gesendet.
+- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit den Scopes `repo` + `gist` (github.com/settings/tokens → Tokens (classic)). Fine-grained geht auch: Repository access „All repositories“, Permissions Contents RW + Administration RW (Gruppen/Einladungen), Account permission **Gists: Read and write**. Der Token bleibt nur im `sessionStorage` und wird nur an `api.github.com` gesendet.
 - **Eigene Rezepte**: je Anwender in einem privaten (secret) Gist (`RezeptBibliothek|data`).
 - **Gruppen**: private GitHub-Repos `rezeptbibliothek-gruppe-*`. Mitglieder werden per GitHub-Benutzername als Collaborator eingeladen (Einladung per E-Mail); alle Mitglieder sehen und bearbeiten die geteilten Rezepte im Repo unter `recipes/*.md`.
 - **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `docs/fallback-skill.md`.
