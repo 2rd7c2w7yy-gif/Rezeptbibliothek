@@ -6,16 +6,16 @@ Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral 
 
 ## Web-App (GitHub Pages)
 
-Im Ordner `web/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
+Im Ordner `docs/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
 
 - **Anmeldung**: GitHub Personal Access Token (fine-grained, Repos: Contents RW, Metadata R, Administration RW) – wird nur im `sessionStorage` gehalten und nur an `api.github.com` gesendet.
 - **Eigene Rezepte**: je Anwender in einem privaten (secret) Gist (`RezeptBibliothek|data`).
 - **Gruppen**: private GitHub-Repos `rezeptbibliothek-gruppe-*`. Mitglieder werden per GitHub-Benutzername als Collaborator eingeladen (Einladung per E-Mail); alle Mitglieder sehen und bearbeiten die geteilten Rezepte im Repo unter `recipes/*.md`.
-- **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `web/fallback-skill.md`.
+- **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `docs/fallback-skill.md`.
 - **Geräte-Schalter** wie in der nativen App (Freies Kochen / TM6/TM7 / Monsieur Cuisine), inkl. KI-Überarbeitung.
 - **PDF**: „Als PDF drucken“ (Druckansicht des Browsers).
 
-**Aktivierung**: Repo → Settings → Pages → „Deploy from a branch“ → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/web` → Save. URL danach: `https://<github-user>.github.io/Rezeptbibliothek/`.
+**Aktivierung**: Repo → Settings → Pages → „Deploy from a branch“ → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL danach: `https://<github-user>.github.io/Rezeptbibliothek/`.
 
 ## Funktionen
 
