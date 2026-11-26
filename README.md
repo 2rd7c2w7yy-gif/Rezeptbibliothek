@@ -4,6 +4,19 @@ Eine native SwiftUI-App für **Mac (MacBook), iPhone und iPad** (ein gemeinsamer
 
 Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral Studio: Die App lädt den Skill zur Laufzeit über die Mistral API (`GET /v2/skills/skill:rezepte-thermomix?alias=main`) und verwendet ihn als System-Prompt für die Chat Completion (`POST /v1/chat/completions`). Ist das Studio nicht erreichbar, fällt die App auf eine im App-Bundle eingebettete Kopie des Skills zurück (`RezeptBibliothek/Resources/FallbackSkill.md`).
 
+## Web-App (GitHub Pages)
+
+Im Ordner `web/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
+
+- **Anmeldung**: GitHub Personal Access Token (fine-grained, Repos: Contents RW, Metadata R, Administration RW) – wird nur im `sessionStorage` gehalten und nur an `api.github.com` gesendet.
+- **Eigene Rezepte**: je Anwender in einem privaten (secret) Gist (`RezeptBibliothek|data`).
+- **Gruppen**: private GitHub-Repos `rezeptbibliothek-gruppe-*`. Mitglieder werden per GitHub-Benutzername als Collaborator eingeladen (Einladung per E-Mail); alle Mitglieder sehen und bearbeiten die geteilten Rezepte im Repo unter `recipes/*.md`.
+- **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `web/fallback-skill.md`.
+- **Geräte-Schalter** wie in der nativen App (Freies Kochen / TM6/TM7 / Monsieur Cuisine), inkl. KI-Überarbeitung.
+- **PDF**: „Als PDF drucken“ (Druckansicht des Browsers).
+
+**Aktivierung**: Repo → Settings → Pages → „Deploy from a branch“ → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/web` → Save. URL danach: `https://<github-user>.github.io/Rezeptbibliothek/`.
+
 ## Funktionen
 
 - **Rezepte mit KI erstellen**: Wunsch in Freitext eingeben (z. B. „vegane Linsensuppe für 4 Personen, scharf, in 30 Minuten“) → der Skill `rezepte-thermomix` erzeugt ein TM6-Rezept als Markdown → Vorschau, speichern, PDF exportieren.
