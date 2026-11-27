@@ -8,9 +8,10 @@ Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral 
 
 Im Ordner `docs/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
 
-- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit den Scopes `repo` + `gist` (github.com/settings/tokens → Tokens (classic)). Fine-grained geht auch: Repository access „All repositories“, Permissions Contents RW + Administration RW (Gruppen/Einladungen), Account permission **Gists: Read and write**. Der Token bleibt nur im `sessionStorage` und wird nur an `api.github.com` gesendet.
-- **Eigene Rezepte**: je Anwender in einem privaten (secret) Gist (`RezeptBibliothek|data`).
-- **Gruppen**: private GitHub-Repos `rezeptbibliothek-gruppe-*`. Mitglieder werden per GitHub-Benutzername als Collaborator eingeladen (Einladung per E-Mail); alle Mitglieder sehen und bearbeiten die geteilten Rezepte im Repo unter `recipes/*.md`.
+- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit Scope `repo` (github.com/settings/tokens → Tokens (classic)). Der Token bleibt nur im `sessionStorage` und wird nur an `api.github.com` gesendet.
+- **Konzept „Bibliothek“**: Alle Rezepte liegen in einem **privaten Repo** `rezeptbibliothek-bibliothek` (wird beim ersten Login des Besitzers automatisch angelegt). **Nur der Besitzer** (Owner des Repos) kann Rezepte per KI erstellen, überarbeiten und löschen. Eingeladene Benutzer bekommen Collaborator-Zugriff mit **`pull` (nur Lesen)** – sie können die Bibliothek durchsuchen, filtern, lokal favorisieren und als PDF drucken, aber nichts bearbeiten.
+- **Einladungen**: Der Besitzer lädt weitere Benutzer per GitHub-Benutzername ein (Collaborator `pull`); die Einladung kommt per E-Mail von GitHub.
+- **Gruppen**: optional private Repos `rezeptbibliothek-gruppe-*` (gleicher Mechanismus, ebenfalls nur lesend für Mitglieder).
 - **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `docs/fallback-skill.md`.
 - **Geräte-Schalter** wie in der nativen App (Freies Kochen / TM6/TM7 / Monsieur Cuisine), inkl. KI-Überarbeitung.
 - **PDF**: „Als PDF drucken“ (Druckansicht des Browsers).
