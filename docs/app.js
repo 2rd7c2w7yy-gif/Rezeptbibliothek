@@ -112,8 +112,10 @@ function yamlUnq(v) { v = v.trim(); if (v.startsWith('"') && v.endsWith('"')) re
 
 function encodeRecipeFile(r) {
   const fm = ['---', 'id: ' + yamlVal(r.id), 'title: ' + yamlVal(r.title), 'category: ' + yamlVal(r.category),
-    'device: ' + yamlVal(deviceById(r.device).label), 'created: ' + yamlVal(r.created), 'updated: ' + yamlVal(r.updated), '---'].join('\n');
-  return fm + '\n\n' + r.markdown + '\n';
+    'device: ' + yamlVal(deviceById(r.device).label), 'created: ' + yamlVal(r.created), 'updated: ' + yamlVal(r.updated)];
+  if (r.cookidoo_gist) fm.push('cookidoo_gist: ' + yamlVal(r.cookidoo_gist));
+  fm.push('---');
+  return fm.join('\n') + '\n\n' + r.markdown + '\n';
 }
 function parseRecipeFile(content) {
   const m = String(content).match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -123,6 +125,7 @@ function parseRecipeFile(content) {
     id: meta.id || uid(), title: meta.title || 'Ohne Titel', category: meta.category || 'Allgemein',
     device: (DEVICES.find(d => d.label === meta.device) || DEVICES[1]).id,
     favorite: false, created: meta.created || nowISO(), updated: meta.updated || nowISO(),
+    cookidoo_gist: meta.cookidoo_gist || '',
     markdown: m ? m[2].trim() : String(content),
   };
 }
@@ -259,6 +262,70 @@ function extractTitle(markdown) {
   return 'Neues Rezept';
 }
 
+/* ---------------- Cookidoo-Export (URL-Import) ---------------- */
+function mdToSchema(r) {
+  const lines = r.markdown.split('\n');
+  let name = r.title, yield_ = '', section = '';
+  const ingredients = [], steps = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line === '---') continue;
+    if (line.startsWith('# ')) { name = line.slice(2).trim(); continue; }
+    if (line.startsWith('## ')) { section = line.slice(3).trim().toLowerCase(); continue; }
+    if (/portionen/i.test(line)) { const m = line.match(/Portionen:?\*\*\s*([^|]+)/i); if (m) yield_ = m[1].trim(); continue; }
+    if (/^(zutaten|ingredients)/.test(section) && (line.startsWith('- ') || line.startsWith('* '))) {
+      ingredients.push(line.replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim());
+    } else if (/^(zubereitung|preparation|steps|schritte)/.test(section)) {
+      const t = line.replace(/^\d+[.)]\s*/, '').replace(/^\*\*Schritt \d+\*\*\s*/i, '').replace(/\*\*/g, '').trim();
+      if (t) steps.push(t);
+    }
+  }
+  return { name, yield: yield_, ingredients, steps };
+}
+
+function cookidooHTML(r) {
+  const s = mdToSchema(r);
+  const schema = {
+    '@context': 'https://schema.org', '@type': 'Recipe', name: s.name,
+    recipeIngredient: s.ingredients,
+    recipeInstructions: s.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })),
+    datePublished: r.created,
+  };
+  if (s.yield) schema.recipeYield = s.yield;
+  const ing = s.ingredients.map(i => `<li>${esc(i)}</li>`).join('\n');
+  const steps = s.steps.map((t, i) => `<li><b>Schritt ${i + 1}:</b> ${esc(t)}</li>`).join('\n');
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(s.name)}</title>
+<script type="application/ld+json">${JSON.stringify(schema)}</script>
+<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;line-height:1.5}h1{font-size:24px}h2{font-size:18px;margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:4px}</style>
+</head><body>
+<h1>${esc(s.name)}</h1>
+${s.yield ? `<p><b>Portionen:</b> ${esc(s.yield)}</p>` : ''}
+<h2>Zutaten</h2><ul>${ing}</ul>
+<h2>Zubereitung</h2><ol>${steps}</ol>
+<p><small>Erstellt mit RezeptBibliothek</small></p>
+</body></html>`;
+}
+
+async function cookidooURL(r) {
+  let gistId = localStorage.getItem('rb_cookidoo_' + r.id) || r.cookidoo_gist || '';
+  const files = { 'index.html': { content: cookidooHTML(r) } };
+  if (gistId) {
+    await gh('/gists/' + gistId, { method: 'PATCH', body: { description: 'RezeptBibliothek: ' + r.title, public: true, files } });
+  } else {
+    const g = await gh('/gists', { method: 'POST', body: { description: 'RezeptBibliothek: ' + r.title, public: true, files } });
+    gistId = g.id;
+  }
+  localStorage.setItem('rb_cookidoo_' + r.id, gistId);
+  if (state.isOwner) {
+    r.cookidoo_gist = gistId;
+    const inGroup = state.route.name === 'gruppe';
+    const full = inGroup ? state.route.a + '/' + state.route.b : state.libraryFull;
+    await saveRecipeFile(full, r);
+    if (inGroup) state.groupRecipes = await listRecipes(full); else state.recipes = await listRecipes(full);
+  }
+  return `https://gist.githubusercontent.com/${state.user.login}/${gistId}/raw/index.html`;
+}
+
 /* ---------------- App ---------------- */
 window.App = {
 
@@ -352,6 +419,7 @@ window.App = {
         <h2>${r.favorite ? '★ ' : ''}${esc(r.title)}</h2>
         <button class="btn small" onclick="App.toggleFav('${esc(r.id)}')">${r.favorite ? '★ Favorit' : '☆ Favorit'}</button>
         <button class="btn small" onclick="App.printRecipe()">Als PDF drucken</button>
+        <button class="btn small" onclick="App.openCookidoo('${esc(r.id)}')">🔗 Cookidoo-URL</button>
         ${ownerButtons}
       </div>
       <div class="meta" style="margin-bottom:10px">
@@ -547,6 +615,31 @@ window.App = {
     } catch (e) { $('#invite-status').textContent = 'Fehler: ' + e.message; }
   },
 
+  async openCookidoo(id) {
+    const items = state.route.name === 'gruppe' ? state.groupRecipes : state.recipes;
+    const r = items.find(x => x.id === id);
+    if (!r) return;
+    if (!confirm('Cookidoo-Import erzeugt eine ÖFFENTLICHE URL (public Gist) für dieses eine Rezept. Fortfahren?')) return;
+    App.openModal(`<h3>Cookidoo-Import</h3><div id="cookidoo-status" class="status"><span class="spinner"></span>URL wird erzeugt …</div><div id="cookidoo-result"></div>`);
+    try {
+      const url = await cookidooURL(r);
+      $('#cookidoo-status').textContent = '';
+      $('#cookidoo-result').innerHTML = `
+        <div class="field"><label>Import-URL (in Cookidoo einfügen)</label>
+        <input id="cookidoo-url" readonly value="${esc(url)}" onclick="this.select()"></div>
+        <div class="hint">Ablauf: <a href="https://cookidoo.de" target="_blank" rel="noopener">cookidoo.de</a> → „Meine Kreationen“ → grüner „+“ → „Rezept importieren“ → diese URL einfügen → „Importieren“. Danach die TM6/TM7-Einstellungen (Temperatur/Stufe/Zeit) manuell an den Schritten ergänzen.<br>
+        Hinweis: Die URL ist öffentlich (public Gist) und bleibt bestehen, bis du das Gist unter gist.github.com löschst. Dafür braucht dein Token den Scope <b>gist</b>.</div>
+        <div class="actions">
+          <button class="btn primary" onclick="navigator.clipboard.writeText($('#cookidoo-url').value);this.textContent='Kopiert!'">URL kopieren</button>
+          <button class="btn" onclick="App.closeModal()">Schließen</button>
+        </div>`;
+    } catch (e) {
+      $('#cookidoo-status').textContent = '';
+      $('#cookidoo-result').innerHTML = `<div class="error">${esc(e.message)}</div>
+        <div class="actions"><button class="btn" onclick="App.closeModal()">Schließen</button></div>`;
+    }
+  },
+
   openSettings() {
     App.openModal(`
       <h3>Einstellungen</h3>
@@ -609,7 +702,7 @@ function viewLogin() {
       <input id="login-token" type="password" placeholder="ghp_…" autocomplete="off">
       <div class="hint">
         Token erstellen: <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>
-        → „Tokens (classic)“ → „Generate new token (classic)“ → Scope: <b>☑ repo</b> → „Generate token“.
+        → „Tokens (classic)“ → „Generate new token (classic)“ → Scopes: <b>☑ repo</b> (Bibliothek) und <b>☑ gist</b> (nur für Cookidoo-Export) → „Generate token“.
         Der Token bleibt nur in diesem Browser-Tab (sessionStorage) und wird nur an api.github.com gesendet.
         <br>Du siehst die Bibliothek nur, wenn dich der Besitzer eingeladen hat (nur Lesezugriff).
       </div>
