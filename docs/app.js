@@ -7,8 +7,8 @@
      und Mitglieder einladen (Collaborator mit "pull" = nur Lesen).
    - Alle anderen eingeladenen Benutzer nutzen die Bibliothek schreibgeschützt
      (ansehen, suchen, filtern, lokal favorisieren, als PDF drucken).
-   - Anmeldung: GitHub PAT (classic, scope "repo") – nur im sessionStorage.
-   - KI (Mistral) nur für den Besitzer; Key nur im sessionStorage.
+   - Anmeldung: GitHub PAT (classic, scope "repo") – lokal im Browser (localStorage).
+   - KI (Mistral) nur für den Besitzer; Key lokal im Browser (localStorage).
    ===================================================================== */
 
 const GH = 'https://api.github.com';
@@ -31,8 +31,8 @@ const deviceById = id => DEVICES.find(d => d.id === id) || DEVICES[1];
 
 /* ---------------- State ---------------- */
 const state = {
-  token: sessionStorage.getItem('gh_token') || '',
-  mistralKey: sessionStorage.getItem('mistral_key') || '',
+  token: localStorage.getItem('gh_token') || '',
+  mistralKey: localStorage.getItem('mistral_key') || '',
   user: null,
   isOwner: false,
   libraryFull: '',
@@ -339,7 +339,7 @@ window.App = {
         return;
       } catch (e) { console.warn('Session ungültig:', e.message); }
     }
-    sessionStorage.removeItem('gh_token');
+    localStorage.removeItem('gh_token');
     state.token = '';
     App.render();
   },
@@ -351,7 +351,7 @@ window.App = {
     $('#login-status').innerHTML = '<span class="spinner"></span>Anmeldung läuft …';
     try {
       state.user = await gh('/user');
-      sessionStorage.setItem('gh_token', token);
+      localStorage.setItem('gh_token', token);
       await ensureLibrary();
       await loadGroups();
       location.hash = '#/bibliothek';
@@ -364,8 +364,8 @@ window.App = {
   },
 
   logout() {
-    sessionStorage.removeItem('gh_token');
-    sessionStorage.removeItem('mistral_key');
+    localStorage.removeItem('gh_token');
+    localStorage.removeItem('mistral_key');
     state.token = ''; state.mistralKey = ''; state.user = null;
     location.hash = '';
     App.render();
@@ -644,7 +644,7 @@ window.App = {
     App.openModal(`
       <h3>Einstellungen</h3>
       <div class="field">
-        <label>Mistral API-Key (nur in dieser Browser-Session; nur der Besitzer kann KI-Rezepte erstellen)</label>
+        <label>Mistral API-Key (lokal in diesem Browser gespeichert; nur der Besitzer kann KI-Rezepte erstellen)</label>
         <input id="mistral-key" type="password" value="${esc(state.mistralKey)}" placeholder="sk-…">
         <div class="hint">Key erstellen: <a href="https://console.mistral.ai" target="_blank" rel="noopener">console.mistral.ai</a> → API Keys.</div>
       </div>
@@ -657,7 +657,7 @@ window.App = {
 
   saveSettings() {
     state.mistralKey = $('#mistral-key').value.trim();
-    sessionStorage.setItem('mistral_key', state.mistralKey);
+    localStorage.setItem('mistral_key', state.mistralKey);
     App.closeModal();
   },
 
@@ -703,7 +703,7 @@ function viewLogin() {
       <div class="hint">
         Token erstellen: <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>
         → „Tokens (classic)“ → „Generate new token (classic)“ → Scopes: <b>☑ repo</b> (Bibliothek) und <b>☑ gist</b> (nur für Cookidoo-Export) → „Generate token“.
-        Der Token bleibt nur in diesem Browser-Tab (sessionStorage) und wird nur an api.github.com gesendet.
+        Der Token bleibt lokal in diesem Browser (localStorage) gespeichert, bis du dich abmeldest oder den Token bei GitHub löschst – und wird nur an api.github.com gesendet.
         <br>Du siehst die Bibliothek nur, wenn dich der Besitzer eingeladen hat (nur Lesezugriff).
       </div>
     </div>

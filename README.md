@@ -8,7 +8,7 @@ Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral 
 
 Im Ordner `docs/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
 
-- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit Scope `repo` (github.com/settings/tokens → Tokens (classic)). Der Token bleibt nur im `sessionStorage` und wird nur an `api.github.com` gesendet.
+- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit Scope `repo` (github.com/settings/tokens → Tokens (classic)). Der Token bleibt lokal im Browser (`localStorage`) gespeichert, bis zur Abmeldung, und wird nur an `api.github.com` gesendet.
 - **Konzept „Bibliothek“**: Alle Rezepte liegen in einem **privaten Repo** `rezeptbibliothek-bibliothek` (wird beim ersten Login des Besitzers automatisch angelegt). **Nur der Besitzer** (Owner des Repos) kann Rezepte per KI erstellen, überarbeiten und löschen. Eingeladene Benutzer bekommen Collaborator-Zugriff mit **`pull` (nur Lesen)** – sie können die Bibliothek durchsuchen, filtern, lokal favorisieren und als PDF drucken, aber nichts bearbeiten.
 - **Einladungen**: Der Besitzer lädt weitere Benutzer per GitHub-Benutzername ein (Collaborator `pull`); die Einladung kommt per E-Mail von GitHub.
 - **Gruppen**: optional private Repos `rezeptbibliothek-gruppe-*` (gleicher Mechanismus, ebenfalls nur lesend für Mitglieder).
