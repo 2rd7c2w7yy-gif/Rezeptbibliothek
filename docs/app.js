@@ -615,8 +615,10 @@ function viewShell() {
 function viewMain() {
   const r = state.route;
   if (!state.libraryReady) {
-    return `<div class="empty">Die Bibliothek wird gerade vom Besitzer angelegt …<br>
-      Falls das bleibt: Repo <code>${esc(LIBRARY_REPO)}</code> von @${esc(state.owner || '?')} prüfen.</div>`;
+    return `<div class="empty">Die Bibliothek ist noch nicht erreichbar.<br>
+      Entweder legt der Besitzer sie gerade an (erstes Besitzer-Login) – oder das Repo
+      <code>${esc(LIBRARY_REPO)}</code> von @${esc(state.owner || '?')} ist noch <b>privat</b>
+      (github.com/${esc(state.owner || '?')}/${esc(LIBRARY_REPO)} → Settings → Danger Zone → „Change visibility" → public).</div>`;
   }
   if (r.name === 'gruppen') {
     if (!state.groups.length) return '<div class="empty">Keine Gruppen.</div>';
