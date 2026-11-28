@@ -595,7 +595,7 @@ window.App = {
     const label = inGroup ? 'Gruppe' : 'Bibliothek';
     App.openModal(`
       <h3>Mitglied einladen – ${esc(label)}</h3>
-      <div class="field"><label>GitHub-Benutzername</label><input id="invite-user" placeholder="z. B. maxmustermann"></div>
+      <div class="field"><label>GitHub-Benutzername (nicht die E-Mail!)</label><input id="invite-user" placeholder="z. B. @maxmustermann"></div>
       <div class="hint">Der Eingeladene bekommt eine GitHub-Einladung per E-Mail mit <b>nur Lesezugriff</b> (pull). Er kann die ${esc(label)} ansehen, suchen, favorisieren und als PDF drucken – aber keine Rezepte erstellen oder bearbeiten.</div>
       <div id="invite-status" class="status"></div>
       <div class="actions">
@@ -612,7 +612,11 @@ window.App = {
     try {
       await inviteMember(repo, username);
       $('#invite-status').textContent = 'Einladung an @' + username + ' gesendet (E-Mail von GitHub, nur Lesezugriff).';
-    } catch (e) { $('#invite-status').textContent = 'Fehler: ' + e.message; }
+    } catch (e) {
+      $('#invite-status').textContent = /not found/i.test(e.message)
+        ? 'Nicht gefunden: Bitte den GitHub-Benutzernamen (@name) des Accounts eingeben, NICHT die E-Mail-Adresse. Den Namen findest du z. B. auf github.com/<name>. Die Einladung geht dann per E-Mail an die dort hinterlegte Adresse.'
+        : 'Fehler: ' + e.message;
+    }
   },
 
   async openCookidoo(id) {
