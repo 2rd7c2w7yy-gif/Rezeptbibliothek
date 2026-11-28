@@ -1,5 +1,10 @@
 import SwiftUI
 import SwiftData
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 struct RecipeDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -53,6 +58,11 @@ struct RecipeDetailView: View {
                     Label("Bearbeiten", systemImage: "pencil")
                 }
                 Button {
+                    copyMarkdown()
+                } label: {
+                    Label("Text kopieren", systemImage: "doc.on.doc")
+                }
+                Button {
                     exportPDF()
                 } label: {
                     Label("PDF exportieren", systemImage: "square.and.arrow.up")
@@ -99,6 +109,15 @@ struct RecipeDetailView: View {
         } message: {
             Text(exportError ?? "")
         }
+    }
+
+    private func copyMarkdown() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(recipe.markdown, forType: .string)
+        #else
+        UIPasteboard.general.string = recipe.markdown
+        #endif
     }
 
     @MainActor
