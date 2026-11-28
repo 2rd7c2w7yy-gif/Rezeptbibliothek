@@ -184,6 +184,26 @@ async function getSkillBody() {
 function buildSystemPrompt(skillBody, device) {
   return skillBody + '\n\n# Zusatz für die API-Nutzung\nGib ausschließlich das fertige Rezept als Markdown-Dokument zurück (Rezepttitel als H1). Keine Einleitung, keine Erklärung.\n\n# Gerät\n' + device.prompt;
 }
+async function aiChatVision(systemPrompt, userText, images, model) {
+  const res = await mistral('/v1/chat/completions', {
+    method: 'POST',
+    body: {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: [{ type: 'text', text: userText }, ...images] },
+      ],
+      temperature: 0.4, max_tokens: 4096,
+    },
+  });
+  let content = res?.choices?.[0]?.message?.content;
+  if (Array.isArray(content)) content = content.map(p => p.text || '').join('');
+  if (!content) throw new Error('KI hat keine Antwort geliefert.');
+  content = content.trim();
+  if (content.startsWith('```')) content = content.replace(/^```[a-z]*\n/i, '').replace(/```$/, '').trim();
+  return content;
+}
+
 async function aiChat(systemPrompt, userMessage) {
   const res = await mistral('/v1/chat/completions', {
     method: 'POST',
@@ -385,7 +405,7 @@ window.App = {
 
   setBusy(b) {
     state.aiBusy = b;
-    for (const id of ['btn-ai-go', 'btn-ai-revise', 'btn-ai-new']) {
+    for (const id of ['btn-ai-go', 'btn-ai-revise', 'btn-ai-new', 'btn-ai-photo', 'btn-ai-photo-go']) {
       const el = document.getElementById(id);
       if (el) el.disabled = b;
     }
@@ -452,6 +472,93 @@ window.App = {
     } catch (e) {
       $('#ai-error').textContent = e.message;
       $('#ai-status').textContent = '';
+      App.setBusy(false);
+    }
+  },
+
+  openPhotoAI() {
+    if (!state.isOwner) { alert('Nur der Besitzer kann Foto-Rezepte mit der KI erstellen.'); return; }
+    if (state.aiBusy) return;
+    const dev = DEVICES.map(d => `<button type="button" class="${state.device === d.id ? 'active' : ''}" onclick="App.setDevice('${d.id}')">${esc(d.short)}</button>`).join('');
+    App.openModal(`
+      <h3>📷 Foto-Rezept mit KI</h3>
+      <div class="seg">${dev}</div>
+      <div class="field">
+        <label>1–2 Fotos (hochladen oder mit der Kamera aufnehmen)</label>
+        <input id="photo-input" type="file" accept="image/*" capture="environment" multiple>
+        <div class="hint" id="photo-count">0 Fotos ausgewählt (max. 2)</div>
+      </div>
+      <div class="field">
+        <label>Optional: Zusatzwunsch (z. B. „als Auflauf“, „vegetarisch“, „scharf“)</label>
+        <textarea id="photo-wish" rows="3" placeholder="leer lassen = KI erkennt Gericht/Zutaten selbst"></textarea>
+      </div>
+      <div class="field"><label>Kategorie</label>
+        <select id="photo-category">${CATEGORIES.filter(c => c !== 'Alle').map(c => `<option>${c}</option>`).join('')}</select></div>
+      <div id="photo-status" class="status"></div>
+      <div id="photo-error" class="error"></div>
+      <div class="actions">
+        <button class="btn" onclick="App.closeModal()">Abbrechen</button>
+        <button class="btn primary" id="btn-ai-photo-go" onclick="App.runPhotoAI()">Rezept aus Fotos erstellen</button>
+      </div>
+    `);
+    $('#photo-input').addEventListener('change', () => {
+      const n = $('#photo-input').files.length;
+      $('#photo-count').textContent = Math.min(n, 2) + ' Fotos ausgewählt (max. 2)' + (n > 2 ? ' – nur die ersten 2 werden verwendet' : '');
+    });
+  },
+
+  async runPhotoAI() {
+    const input = $('#photo-input');
+    const files = [...(input.files || [])].slice(0, 2);
+    if (!files.length) { $('#photo-error').textContent = 'Bitte 1–2 Fotos auswählen.'; return; }
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) { $('#photo-error').textContent = 'Nur Bilddateien erlaubt.'; return; }
+      if (f.size > 8 * 1024 * 1024) { $('#photo-error').textContent = 'Bild zu groß (max. 8 MB): ' + f.name; return; }
+    }
+    const wish = $('#photo-wish').value.trim();
+    const category = $('#photo-category').value;
+    const device = deviceById(state.device);
+    $('#photo-error').textContent = '';
+    $('#photo-status').innerHTML = '<span class="spinner"></span>Fotos werden gelesen …';
+    App.setBusy(true);
+    try {
+      const images = [];
+      for (const f of files) {
+        const dataUrl = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.onerror = rej;
+          r.readAsDataURL(f);
+        });
+        images.push({ type: 'image_url', image_url: { url: dataUrl } });
+      }
+      $('#photo-status').textContent = 'Skill wird geladen …';
+      const skill = await getSkillBody();
+      const systemPrompt = buildSystemPrompt(skill.body, device);
+      const userText = (wish ? 'Zusatzwunsch: ' + wish + '\n\n' : '') +
+        'Erstelle aus diesen ' + files.length + ' Foto(s) ein vollständiges, realistisches Rezept ' +
+        '(du siehst z. B. ein fertiges Gericht oder vorhandene Zutaten). Antworte ausschließlich mit dem Rezept als Markdown (Titel als H1, Portionen, Zutaten, Zubereitung).';
+      $('#photo-status').textContent = 'KI analysiert die Fotos und erstellt das Rezept … (' + skill.source + ')';
+      let markdown;
+      try {
+        markdown = await aiChatVision(systemPrompt, userText, images, 'mistral-large-latest');
+      } catch (e) {
+        if (/vision|image|multimodal|model/i.test(e.message)) {
+          markdown = await aiChatVision(systemPrompt, userText, images, 'pixtral-12b-2409');
+        } else throw e;
+      }
+      const recipe = {
+        id: null, title: extractTitle(markdown), category, device: device.id,
+        group: state.route.name === 'gruppe' ? state.route.a : '',
+        created: nowISO(), markdown,
+      };
+      $('#photo-status').textContent = 'Wird automatisch gespeichert …';
+      App.setBusy(false);
+      await App.saveRecipe(recipe);
+      App.closeModal();
+    } catch (e) {
+      $('#photo-error').textContent = e.message;
+      $('#photo-status').textContent = '';
       App.setBusy(false);
     }
   },
@@ -567,19 +674,21 @@ function viewMain() {
   if (r.name === 'gruppe') {
     const g = state.groups.find(x => x.id === r.a);
     const aiBtn = state.isOwner ? `<button class="btn primary small" id="btn-ai-new" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
+    const photoBtn = state.isOwner ? ` <button class="btn small" id="btn-ai-photo" ${state.aiBusy ? 'disabled' : ''} onclick="App.openPhotoAI()">📷 Foto-Rezept</button>` : '';
     return `
       <div class="toolbar no-print">
         <h2 style="margin:0;flex:1">Gruppe: ${esc(g ? g.name : '')}</h2>
-        ${aiBtn}
+        ${aiBtn}${photoBtn}
       </div>
       ${toolbarHtml()}
       <div class="recipe-list" id="recipe-list"></div>`;
   }
   const aiBtn = state.isOwner ? `<button class="btn primary small" id="btn-ai-new" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
+  const photoBtn = state.isOwner ? ` <button class="btn small" id="btn-ai-photo" ${state.aiBusy ? 'disabled' : ''} onclick="App.openPhotoAI()">📷 Foto-Rezept</button>` : '';
   return `
     <div class="toolbar no-print">
       <h2 style="margin:0;flex:1">Bibliothek</h2>
-      ${aiBtn}
+      ${aiBtn}${photoBtn}
     </div>
     ${toolbarHtml()}
     <div class="recipe-list" id="recipe-list"></div>`;
