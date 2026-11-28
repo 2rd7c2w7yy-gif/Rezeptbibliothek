@@ -11,7 +11,7 @@ Im Ordner `docs/` liegt die statische Web-App (plain HTML/CSS/JS). **Lesen ist o
 - **Besitzer-Login**: GitHub classic Token, Scope `repo` (github.com/settings/tokens → Tokens (classic) → „Generate new token (classic)“; alternativ Token ueber die gh-CLI im Terminal erzeugen und mit `gh auth token`-Pendant auslesen). Token bleibt lokal im Browser (localStorage), wird nur an api.github.com gesendet.
 - **Schreibschutz**: Schreiben geht nur ueber die GitHub-Contents-API mit dem Token des Repo-Owners – serverseitig erzwungen (oeffentliches Repo, nur Owner hat Schreibrechte). Die App blendet Besitzer-Funktionen ohne Login aus.
 - **KI (Mistral)**: nur Besitzer; Key lokal im Browser (localStorage), nur an api.mistral.ai. Skill `rezepte-thermomix` live aus dem Studio, Fallback `docs/fallback-skill.md`.
-- **Rezept-URL teilen (JSON-LD)**: Rezeptansicht → „🔗 Rezept-URL teilen“ (nur Besitzer) → öffentliche `raw.githubusercontent.com`-URL mit schema.org JSON-LD. Funktioniert mit offenen Import-Tools (z. B. MCS Recipe Importer / mcsrecipe.com für Lidl Monsieur Cuisine, AnyList, Paprika). Cookidoo akzeptiert nur Whitelist-URLs → dafür „📋 Text kopieren“. Der Monsieur Cuisine selbst importiert keine URLs direkt.
+- **Rezept als Text kopieren**: Rezeptansicht → „📋 Text kopieren“ → kompletter Rezepttext in die Zwischenablage. Zum Übertragen z. B. nach Cookidoo („Meine Kreationen“ → „+“ → „Neues Rezept“/KI) oder in offene Tools (MCS Recipe Importer für Lidl Monsieur Cuisine) einfach einfügen.
 - **Gruppen**: `groups.json` + `group`-Feld im Rezept (Front Matter), alles im oeffentlichen Library-Repo.
 
 **Aktivierung**: Repo → Settings → Pages → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL: `https://<github-user>.github.io/Rezeptbibliothek/`.

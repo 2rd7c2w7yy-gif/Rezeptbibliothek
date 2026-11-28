@@ -6,7 +6,6 @@
    - Nur der Besitzer loggt sich ein (GitHub classic Token, Scope "repo")
      und kann Rezepte per KI erstellen/bearbeiten/löschen + Gruppen anlegen.
    - Token nur lokal im Browser (localStorage), nur an api.github.com.
-   - Cookidoo-URL: öffentliche raw.githubusercontent.com-URL aus dem Library-Repo.
    ===================================================================== */
 
 const GH = 'https://api.github.com';
@@ -152,7 +151,6 @@ async function ensureLibrary() {
     await gh('/user/repos', { method: 'POST', body: { name: LIBRARY_REPO, public: true, auto_init: true, description: 'RezeptBibliothek – öffentliche Bibliothek (nur Besitzer schreibt)' } });
     await putFile(state.libraryFull, 'recipes/.gitkeep', '', 'init');
     await putFile(state.libraryFull, 'groups.json', '[]', 'init');
-    await putFile(state.libraryFull, 'cookidoo/.gitkeep', '', 'init');
     exists = true;
   }
   if (exists) {
@@ -168,55 +166,6 @@ async function ensureLibrary() {
     state.libraryReady = false;
   }
   for (const r of state.recipes) r.favorite = state.favorites.has(r.id);
-}
-
-/* ---------------- Cookidoo (öffentliche raw-URL im Library-Repo) ---------------- */
-function mdToSchema(r) {
-  const lines = (r.markdown || '').split('\n');
-  let name = r.title, yield_ = '', section = '';
-  const ingredients = [], steps = [];
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line || line === '---') continue;
-    if (line.startsWith('# ')) { name = line.slice(2).trim(); continue; }
-    if (line.startsWith('## ')) { section = line.slice(3).trim().toLowerCase(); continue; }
-    if (/portionen/i.test(line)) { const m = line.match(/Portionen:?\*\*\s*([^|]+)/i); if (m) yield_ = m[1].trim(); continue; }
-    if (/^(zutaten|ingredients)/.test(section) && (line.startsWith('- ') || line.startsWith('* '))) {
-      ingredients.push(line.replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim());
-    } else if (/^(zubereitung|preparation|steps|schritte)/.test(section)) {
-      const t = line.replace(/^\d+[.)]\s*/, '').replace(/^\*\*Schritt \d+\*\*\s*/i, '').replace(/\*\*/g, '').trim();
-      if (t) steps.push(t);
-    }
-  }
-  return { name, yield: yield_, ingredients, steps };
-}
-function cookidooHTML(r) {
-  const s = mdToSchema(r);
-  const schema = {
-    '@context': 'https://schema.org', '@type': 'Recipe', name: s.name,
-    recipeIngredient: s.ingredients,
-    recipeInstructions: s.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })),
-    datePublished: r.created,
-  };
-  if (s.yield) schema.recipeYield = s.yield;
-  const ing = s.ingredients.map(i => `<li>${esc(i)}</li>`).join('\n');
-  const steps = s.steps.map((t, i) => `<li><b>Schritt ${i + 1}:</b> ${esc(t)}</li>`).join('\n');
-  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(s.name)}</title>
-<script type="application/ld+json">${JSON.stringify(schema)}</script>
-<style>body{font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;line-height:1.5}h1{font-size:24px}h2{font-size:18px;margin-top:24px;border-bottom:1px solid #ddd;padding-bottom:4px}</style>
-</head><body>
-<h1>${esc(s.name)}</h1>
-${s.yield ? `<p><b>Portionen:</b> ${esc(s.yield)}</p>` : ''}
-<h2>Zutaten</h2><ul>${ing}</ul>
-<h2>Zubereitung</h2><ol>${steps}</ol>
-<p><small>Erstellt mit RezeptBibliothek</small></p>
-</body></html>`;
-}
-async function cookidooURL(r) {
-  if (!state.isOwner) throw new Error('Nur der Besitzer kann eine Cookidoo-URL erzeugen.');
-  const path = `cookidoo/${r.id}.html`;
-  await putFile(state.libraryFull, path, cookidooHTML(r), 'Cookidoo-Export: ' + r.title);
-  return `https://raw.githubusercontent.com/${state.libraryFull}/HEAD/${path}`;
 }
 
 /* ---------------- KI ---------------- */
@@ -365,8 +314,6 @@ window.App = {
     const ownerButtons = state.isOwner ? `
         <button class="btn small" id="btn-ai-revise" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI('${esc(r.id)}')">Mit KI überarbeiten</button>
         <button class="btn small danger" onclick="App.deleteRecipe('${esc(r.id)}')">Löschen</button>` : '';
-    const cookidooBtn = state.isOwner
-      ? `<button class="btn small" onclick="App.openShareURL('${esc(r.id)}')">🔗 Rezept-URL teilen</button>` : '';
     main.innerHTML = `
       <div class="no-print detail-head">
         <button class="btn small" onclick="location.hash='${base}'">← Zurück</button>
@@ -374,7 +321,6 @@ window.App = {
         <button class="btn small" onclick="App.toggleFav('${esc(r.id)}')">${r.favorite ? '★ Favorit' : '☆ Favorit'}</button>
         <button class="btn small" onclick="App.printRecipe()">Als PDF drucken</button>
         <button class="btn small" onclick="App.copyText('${esc(r.id)}')">📋 Text kopieren</button>
-        ${cookidooBtn}
         ${ownerButtons}
       </div>
       <div class="meta" style="margin-bottom:10px">
@@ -507,29 +453,6 @@ window.App = {
       $('#ai-error').textContent = e.message;
       $('#ai-status').textContent = '';
       App.setBusy(false);
-    }
-  },
-
-  async openShareURL(id) {
-    const r = state.recipes.find(x => x.id === id);
-    if (!r) return;
-    if (!confirm('Rezept-URL erzeugen (öffentlich im Library-Repo, schema.org JSON-LD). Fortfahren?')) return;
-    App.openModal(`<h3>Rezept-URL teilen (JSON-LD)</h3><div id="cookidoo-status" class="status"><span class="spinner"></span>URL wird erzeugt …</div><div id="cookidoo-result"></div>`);
-    try {
-      const url = await cookidooURL(r);
-      $('#cookidoo-status').textContent = '';
-      $('#cookidoo-result').innerHTML = `
-        <div class="field"><label>Rezept-URL (schema.org JSON-LD, öffentlich)</label>
-        <input id="cookidoo-url" readonly value="${esc(url)}" onclick="this.select()"></div>
-        <div class="hint">Die URL enthält das Rezept als schema.org JSON-LD und funktioniert mit offenen Tools/Apps, die URLs importieren – z. B. <b>MCS Recipe Importer</b> (mcsrecipe.com) für den <b>Lidl Monsieur Cuisine</b>, AnyList, Paprika, Crouton. <b>Cookidoo</b> akzeptiert nur Whitelist-URLs – dafür „📋 Text kopieren“ nutzen und in Cookidoo manuell/KI eintragen. Der Monsieur Cuisine selbst importiert keine URLs direkt.</div>
-        <div class="actions">
-          <button class="btn primary" onclick="navigator.clipboard.writeText($('#cookidoo-url').value);this.textContent='Kopiert!'">URL kopieren</button>
-          <button class="btn" onclick="App.closeModal()">Schließen</button>
-        </div>`;
-    } catch (e) {
-      $('#cookidoo-status').textContent = '';
-      $('#cookidoo-result').innerHTML = `<div class="error">${esc(e.message)}</div>
-        <div class="actions"><button class="btn" onclick="App.closeModal()">Schließen</button></div>`;
     }
   },
 
