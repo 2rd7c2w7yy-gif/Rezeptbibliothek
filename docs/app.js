@@ -373,6 +373,7 @@ window.App = {
         <h2>${r.favorite ? '★ ' : ''}${esc(r.title)}</h2>
         <button class="btn small" onclick="App.toggleFav('${esc(r.id)}')">${r.favorite ? '★ Favorit' : '☆ Favorit'}</button>
         <button class="btn small" onclick="App.printRecipe()">Als PDF drucken</button>
+        <button class="btn small" onclick="App.copyText('${esc(r.id)}')">📋 Text kopieren</button>
         ${cookidooBtn}
         ${ownerButtons}
       </div>
@@ -554,6 +555,17 @@ window.App = {
   },
 
   printRecipe() { window.print(); },
+
+  async copyText(id) {
+    const r = state.recipes.find(x => x.id === id);
+    if (!r) return;
+    try {
+      await navigator.clipboard.writeText(r.markdown);
+      alert('Rezepttext kopiert – in Cookidoo („Meine Kreationen“ → „+“ → „Neues Rezept“) einfügen.');
+    } catch (e) {
+      alert('Kopieren nicht möglich: ' + e.message);
+    }
+  },
   openModal(html) { $('#modal-root').innerHTML = `<div class="modal-backdrop" onclick="if(event.target===this)App.closeModal()"><div class="modal">${html}</div></div>`; },
   closeModal() { $('#modal-root').innerHTML = ''; },
 
