@@ -42,6 +42,7 @@ const state = {
   device: localStorage.getItem('rb_device') || 'thermomix',
   favorites: new Set(JSON.parse(localStorage.getItem('rb_favs') || '[]')),
   fallbackSkill: '',
+  aiBusy: false,
 };
 
 /* ---------------- Helfer ---------------- */
@@ -362,7 +363,7 @@ window.App = {
     if (!r) { main.innerHTML = '<div class="empty">Rezept nicht gefunden.</div>'; return; }
     const base = state.route.name === 'gruppe' ? `#/gruppe/${state.route.a}` : '#/bibliothek';
     const ownerButtons = state.isOwner ? `
-        <button class="btn small" onclick="App.openAI('${esc(r.id)}')">Mit KI überarbeiten</button>
+        <button class="btn small" id="btn-ai-revise" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI('${esc(r.id)}')">Mit KI überarbeiten</button>
         <button class="btn small danger" onclick="App.deleteRecipe('${esc(r.id)}')">Löschen</button>` : '';
     const cookidooBtn = state.isOwner
       ? `<button class="btn small" onclick="App.openCookidoo('${esc(r.id)}')">🔗 Cookidoo-URL</button>` : '';
@@ -435,8 +436,17 @@ window.App = {
     App.render();
   },
 
+  setBusy(b) {
+    state.aiBusy = b;
+    for (const id of ['btn-ai-go', 'btn-ai-revise', 'btn-ai-new']) {
+      const el = document.getElementById(id);
+      if (el) el.disabled = b;
+    }
+  },
+
   openAI(existingId) {
     if (!state.isOwner) { alert('Nur der Besitzer kann Rezepte mit der KI erstellen/überarbeiten.'); return; }
+    if (state.aiBusy) return;
     const existing = existingId ? state.recipes.find(r => r.id === existingId) : null;
     const dev = DEVICES.map(d => `<button type="button" class="${state.device === d.id ? 'active' : ''}" onclick="App.setDevice('${d.id}')">${esc(d.short)}</button>`).join('');
     const groupOptions = ['<option value="">Bibliothek</option>']
@@ -455,7 +465,7 @@ window.App = {
       <div id="ai-error" class="error"></div>
       <div class="actions">
         <button class="btn" onclick="App.closeModal()">Abbrechen</button>
-        <button class="btn primary" onclick="App.runAI(${existing ? `'${existing.id}'` : 'null'})">${existing ? 'Überarbeiten (KI)' : 'Rezept generieren'}</button>
+        <button class="btn primary" id="btn-ai-go" onclick="App.runAI(${existing ? `'${existing.id}'` : 'null'})">${existing ? 'Überarbeiten (KI)' : 'Rezept generieren'}</button>
       </div>
       <div id="ai-preview"></div>
     `);
@@ -469,6 +479,7 @@ window.App = {
     const device = deviceById(state.device);
     $('#ai-error').textContent = '';
     $('#ai-status').innerHTML = '<span class="spinner"></span>Skill wird geladen …';
+    App.setBusy(true);
     try {
       const skill = await getSkillBody();
       const systemPrompt = buildSystemPrompt(skill.body, device);
@@ -487,24 +498,15 @@ window.App = {
         group, created: existingId ? state.recipes.find(r => r.id === existingId).created : nowISO(),
         markdown,
       };
-      $('#ai-status').textContent = 'Fertig – speichern?';
-      $('#ai-preview').innerHTML = `<div class="article">${renderMarkdown(markdown)}</div>
-        <div class="actions">
-          <button class="btn" onclick="App.closeModal()">Verwerfen</button>
-          <button class="btn primary" onclick="App.saveAI()">${existingId ? 'Rezept aktualisieren' : 'Speichern'}</button>
-        </div>`;
-      window.__pendingAI = recipe;
+      $('#ai-status').textContent = 'Wird automatisch gespeichert …';
+      App.setBusy(false);
+      await App.saveRecipe(recipe);   // automatisch speichern, kein Confirm
+      App.closeModal();
     } catch (e) {
       $('#ai-error').textContent = e.message;
       $('#ai-status').textContent = '';
+      App.setBusy(false);
     }
-  },
-
-  async saveAI() {
-    const recipe = window.__pendingAI;
-    if (!recipe) return;
-    App.closeModal();
-    await App.saveRecipe(recipe);
   },
 
   async openCookidoo(id) {
@@ -629,7 +631,7 @@ function viewMain() {
   }
   if (r.name === 'gruppe') {
     const g = state.groups.find(x => x.id === r.a);
-    const aiBtn = state.isOwner ? `<button class="btn primary small" onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
+    const aiBtn = state.isOwner ? `<button class="btn primary small" id="btn-ai-new" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
     return `
       <div class="toolbar no-print">
         <h2 style="margin:0;flex:1">Gruppe: ${esc(g ? g.name : '')}</h2>
@@ -638,7 +640,7 @@ function viewMain() {
       ${toolbarHtml()}
       <div class="recipe-list" id="recipe-list"></div>`;
   }
-  const aiBtn = state.isOwner ? `<button class="btn primary small" onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
+  const aiBtn = state.isOwner ? `<button class="btn primary small" id="btn-ai-new" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI(null)">✨ Neues Rezept mit KI</button>` : '';
   return `
     <div class="toolbar no-print">
       <h2 style="margin:0;flex:1">Bibliothek</h2>
