@@ -494,8 +494,8 @@ window.App = {
       <div class="seg">${dev}</div>
       <div class="field">
         <label>1–2 Fotos (hochladen oder mit der Kamera aufnehmen)</label>
-        <input id="photo-input" type="file" accept="image/*" capture="environment" multiple>
-        <div class="hint" id="photo-count">0 Fotos ausgewählt (max. 2)</div>
+        <input id="photo-input" type="file" accept="image/*" multiple>
+        <div class="hint" id="photo-count">0 Fotos ausgewählt (max. 2 – auf dem Handy: „Foto aufnehmen“ oder Galerie mit Mehrfachauswahl)</div>
       </div>
       <div class="field">
         <label>Optional: Zusatzwunsch (z. B. „als Auflauf“, „vegetarisch“, „scharf“)</label>
@@ -568,7 +568,7 @@ window.App = {
       await App.saveRecipe(recipe);
       App.closeModal();
     } catch (e) {
-      $('#photo-error').textContent = e.message;
+      $('#photo-error').textContent = 'Fehler: ' + e.message;
       $('#photo-status').textContent = '';
       App.setBusy(false);
     }
