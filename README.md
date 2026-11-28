@@ -12,6 +12,7 @@ Im Ordner `docs/` liegt die statische Web-App (plain HTML/CSS/JS). **Lesen ist o
 - **Schreibschutz**: Schreiben geht nur ueber die GitHub-Contents-API mit dem Token des Repo-Owners – serverseitig erzwungen (oeffentliches Repo, nur Owner hat Schreibrechte). Die App blendet Besitzer-Funktionen ohne Login aus.
 - **KI (Mistral)**: nur Besitzer; Key lokal im Browser (localStorage), nur an api.mistral.ai. Skill `rezepte-thermomix` live aus dem Studio, Fallback `docs/fallback-skill.md`.
 - **Foto-Rezept (Vision)**: Besitzer-only, Button „📷 Foto-Rezept“ – 1–2 Fotos hochladen oder mit der Kamera aufnehmen (mobil), optionaler Zusatzwunsch + Geräte-Schalter; Mistral-Vision erstellt daraus ein Rezept (Auto-Save). Modelle: mistral-large-latest, Fallback pixtral-12b-2409.
+- **Automatischer Review-Schritt**: Nach jeder KI-Erstellung (Text oder Foto) prüft ein zweiter KI-Lauf das Rezept kritisch (Mengen, Hydration, Salz, Temperaturen/Zeiten, TM-Stufen, Konsistenz) und optimiert es, bevor es automatisch gespeichert wird.
 - **Rezept als Text kopieren**: Rezeptansicht → „📋 Text kopieren“ → kompletter Rezepttext in die Zwischenablage. Zum Übertragen z. B. nach Cookidoo („Meine Kreationen“ → „+“ → „Neues Rezept“/KI) oder in offene Tools (MCS Recipe Importer für Lidl Monsieur Cuisine) einfach einfügen.
 - **Gruppen**: `groups.json` + `group`-Feld im Rezept (Front Matter), alles im oeffentlichen Library-Repo.
 
