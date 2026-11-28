@@ -366,7 +366,7 @@ window.App = {
         <button class="btn small" id="btn-ai-revise" ${state.aiBusy ? 'disabled' : ''} onclick="App.openAI('${esc(r.id)}')">Mit KI überarbeiten</button>
         <button class="btn small danger" onclick="App.deleteRecipe('${esc(r.id)}')">Löschen</button>` : '';
     const cookidooBtn = state.isOwner
-      ? `<button class="btn small" onclick="App.openCookidoo('${esc(r.id)}')">🔗 Cookidoo-URL</button>` : '';
+      ? `<button class="btn small" onclick="App.openShareURL('${esc(r.id)}')">🔗 Rezept-URL teilen</button>` : '';
     main.innerHTML = `
       <div class="no-print detail-head">
         <button class="btn small" onclick="location.hash='${base}'">← Zurück</button>
@@ -510,18 +510,18 @@ window.App = {
     }
   },
 
-  async openCookidoo(id) {
+  async openShareURL(id) {
     const r = state.recipes.find(x => x.id === id);
     if (!r) return;
-    if (!confirm('Cookidoo-URL erzeugen (öffentlich im Library-Repo). Fortfahren?')) return;
-    App.openModal(`<h3>Cookidoo-Import</h3><div id="cookidoo-status" class="status"><span class="spinner"></span>URL wird erzeugt …</div><div id="cookidoo-result"></div>`);
+    if (!confirm('Rezept-URL erzeugen (öffentlich im Library-Repo, schema.org JSON-LD). Fortfahren?')) return;
+    App.openModal(`<h3>Rezept-URL teilen (JSON-LD)</h3><div id="cookidoo-status" class="status"><span class="spinner"></span>URL wird erzeugt …</div><div id="cookidoo-result"></div>`);
     try {
       const url = await cookidooURL(r);
       $('#cookidoo-status').textContent = '';
       $('#cookidoo-result').innerHTML = `
-        <div class="field"><label>Import-URL (in Cookidoo einfügen)</label>
+        <div class="field"><label>Rezept-URL (schema.org JSON-LD, öffentlich)</label>
         <input id="cookidoo-url" readonly value="${esc(url)}" onclick="this.select()"></div>
-        <div class="hint">Ablauf: <a href="https://cookidoo.de" target="_blank" rel="noopener">cookidoo.de</a> → „Meine Kreationen“ → „+“ → „Rezept importieren“ → URL einfügen → „Importieren“. TM6/TM7-Einstellungen danach manuell ergänzen.</div>
+        <div class="hint">Die URL enthält das Rezept als schema.org JSON-LD und funktioniert mit offenen Tools/Apps, die URLs importieren – z. B. <b>MCS Recipe Importer</b> (mcsrecipe.com) für den <b>Lidl Monsieur Cuisine</b>, AnyList, Paprika, Crouton. <b>Cookidoo</b> akzeptiert nur Whitelist-URLs – dafür „📋 Text kopieren“ nutzen und in Cookidoo manuell/KI eintragen. Der Monsieur Cuisine selbst importiert keine URLs direkt.</div>
         <div class="actions">
           <button class="btn primary" onclick="navigator.clipboard.writeText($('#cookidoo-url').value);this.textContent='Kopiert!'">URL kopieren</button>
           <button class="btn" onclick="App.closeModal()">Schließen</button>
