@@ -4,20 +4,21 @@ Eine native SwiftUI-App für **Mac (MacBook), iPhone und iPad** (ein gemeinsamer
 
 Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral Studio: Die App lädt den Skill zur Laufzeit über die Mistral API (`GET /v2/skills/skill:rezepte-thermomix?alias=main`) und verwendet ihn als System-Prompt für die Chat Completion (`POST /v1/chat/completions`). Ist das Studio nicht erreichbar, fällt die App auf eine im App-Bundle eingebettete Kopie des Skills zurück (`RezeptBibliothek/Resources/FallbackSkill.md`).
 
-## Web-App (GitHub Pages)
+## Web-App (GitHub Pages + Supabase) – öffentlich lesbar, nur Besitzer schreibt
 
-Im Ordner `docs/` liegt eine statische Web-Version (plain HTML/CSS/JS, kein Build-Schritt):
+Im Ordner `docs/` liegt die statische Web-App (plain HTML/CSS/JS + Supabase). **Lesen ist öffentlich – kein Login, kein GitHub für Besucher.** Nur der Besitzer meldet sich an (E-Mail+Passwort) und kann Rezepte per KI erstellen, überarbeiten, löschen und Gruppen anlegen. Alle anderen sehen die Bibliothek schreibgeschützt (suchen, filtern, Favoriten lokal im Browser, PDF-Druck, Cookidoo-URL).
 
-- **Anmeldung**: GitHub Personal Access Token – am einfachsten **classic** mit Scope `repo` (github.com/settings/tokens → Tokens (classic)). Der Token bleibt lokal im Browser (`localStorage`) gespeichert, bis zur Abmeldung, und wird nur an `api.github.com` gesendet.
-- **Konzept „Bibliothek“**: Alle Rezepte liegen in einem **privaten Repo** `rezeptbibliothek-bibliothek` (wird beim ersten Login des Besitzers automatisch angelegt). **Nur der Besitzer** (Owner des Repos) kann Rezepte per KI erstellen, überarbeiten und löschen. Eingeladene Benutzer bekommen Collaborator-Zugriff mit **`pull` (nur Lesen)** – sie können die Bibliothek durchsuchen, filtern, lokal favorisieren und als PDF drucken, aber nichts bearbeiten.
-- **Einladungen**: Der Besitzer lädt weitere Benutzer per GitHub-Benutzername ein (Collaborator `pull`); die Einladung kommt per E-Mail von GitHub.
-- **Gruppen**: optional private Repos `rezeptbibliothek-gruppe-*` (gleicher Mechanismus, ebenfalls nur lesend für Mitglieder).
-- **Cookidoo-Import per URL**: In der Rezeptansicht „🔗 Cookidoo-URL“ erzeugt die App ein öffentliches Gist mit dem Rezept als HTML + schema.org JSON-LD. Die URL (raw-Form `gist.githubusercontent.com/.../raw/index.html`) wird in Cookidoo unter „Meine Kreationen → + → Rezept importieren“ eingefügt; Cookidoo parst Zutaten/Schritte automatisch. TM6/TM7-Einstellungen danach manuell ergänzen. Token-Scope `gist` nötig.
-- **KI**: Mistral API direkt aus dem Browser; der Mistral-Key des Anwenders liegt nur im `sessionStorage`. Skill `rezepte-thermomix` wird live geladen, Fallback: `docs/fallback-skill.md`.
-- **Geräte-Schalter** wie in der nativen App (Freies Kochen / TM6/TM7 / Monsieur Cuisine), inkl. KI-Überarbeitung.
-- **PDF**: „Als PDF drucken“ (Druckansicht des Browsers).
+**Setup (einmalig):**
+1. Kostenloses Projekt anlegen: [supabase.com](https://supabase.com) → „New project“.
+2. SQL Editor: `docs/schema.sql` ausführen (Owner-E-Mail darin auf deine Adresse ändern!).
+3. Project Settings → API: **Project URL** + **anon public key** in `docs/config.js` eintragen (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `OWNER_EMAIL`). Niemals den service_role-Key ins Frontend!
+4. Authentication → Providers → **Email** aktivieren; unter Authentication → Users deinen Besitzer-Account anlegen (Email + Passwort, „Auto confirm“ an).
+5. Storage: Bucket `cookidoo` ist public (kommt aus schema.sql) – für Cookidoo-Import-URLs.
+6. GitHub: Settings → Pages → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL: `https://<github-user>.github.io/Rezeptbibliothek/`.
 
-**Aktivierung**: Repo → Settings → Pages → „Deploy from a branch“ → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL danach: `https://<github-user>.github.io/Rezeptbibliothek/`.
+**Sicherheit:** anon key ist public-safe; Row Level Security (RLS) in `schema.sql` sorgt dafür: SELECT auf Rezepte/Gruppen öffentlich, INSERT/UPDATE/DELETE nur für `is_owner` (wird per DB-Trigger anhand `app_config.owner_email` gesetzt). Mistral-Key des Besitzers bleibt lokal im Browser (localStorage) und wird nur an api.mistral.ai gesendet.
+
+**Cookidoo-Import per URL:** Rezeptansicht → „🔗 Cookidoo-URL“ → öffentlicher Storage-Link mit schema.org JSON-LD → in Cookidoo „Meine Kreationen → + → Rezept importieren“ einfügen.
 
 ## Funktionen
 
