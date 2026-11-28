@@ -493,9 +493,10 @@ window.App = {
       <h3>📷 Foto-Rezept mit KI</h3>
       <div class="seg">${dev}</div>
       <div class="field">
-        <label>1–2 Fotos (hochladen oder mit der Kamera aufnehmen)</label>
-        <input id="photo-input" type="file" accept="image/*" multiple>
-        <div class="hint" id="photo-count">0 Fotos ausgewählt (max. 2 – auf dem Handy: „Foto aufnehmen“ oder Galerie mit Mehrfachauswahl)</div>
+        <label>Fotos (max. 2 – am Handy pro Feld eines aufnehmen, am Mac Datei(en) wählen)</label>
+        <input id="photo-input-1" type="file" accept="image/*" capture="environment">
+        <input id="photo-input-2" type="file" accept="image/*" capture="environment" style="margin-top:6px">
+        <div class="hint" id="photo-count">0 Fotos ausgewählt (max. 2)</div>
       </div>
       <div class="field">
         <label>Optional: Zusatzwunsch (z. B. „als Auflauf“, „vegetarisch“, „scharf“)</label>
@@ -510,15 +511,16 @@ window.App = {
         <button class="btn primary" id="btn-ai-photo-go" onclick="App.runPhotoAI()">Rezept aus Fotos erstellen</button>
       </div>
     `);
-    $('#photo-input').addEventListener('change', () => {
-      const n = $('#photo-input').files.length;
-      $('#photo-count').textContent = Math.min(n, 2) + ' Fotos ausgewählt (max. 2)' + (n > 2 ? ' – nur die ersten 2 werden verwendet' : '');
-    });
+    const updateCount = () => {
+      const n = ($('#photo-input-1').files.length > 0 ? 1 : 0) + ($('#photo-input-2').files.length > 0 ? 1 : 0);
+      $('#photo-count').textContent = n + ' Foto(s) ausgewählt (max. 2)';
+    };
+    $('#photo-input-1').addEventListener('change', updateCount);
+    $('#photo-input-2').addEventListener('change', updateCount);
   },
 
   async runPhotoAI() {
-    const input = $('#photo-input');
-    const files = [...(input.files || [])].slice(0, 2);
+    const files = [...($('#photo-input-1').files || []), ...($('#photo-input-2').files || [])].slice(0, 2);
     if (!files.length) { $('#photo-error').textContent = 'Bitte 1–2 Fotos auswählen.'; return; }
     for (const f of files) {
       if (!f.type.startsWith('image/')) { $('#photo-error').textContent = 'Nur Bilddateien erlaubt.'; return; }
