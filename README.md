@@ -4,21 +4,17 @@ Eine native SwiftUI-App für **Mac (MacBook), iPhone und iPad** (ein gemeinsamer
 
 Die KI nutzt dabei **deinen eigenen Skill `rezepte-thermomix`** aus dem Mistral Studio: Die App lädt den Skill zur Laufzeit über die Mistral API (`GET /v2/skills/skill:rezepte-thermomix?alias=main`) und verwendet ihn als System-Prompt für die Chat Completion (`POST /v1/chat/completions`). Ist das Studio nicht erreichbar, fällt die App auf eine im App-Bundle eingebettete Kopie des Skills zurück (`RezeptBibliothek/Resources/FallbackSkill.md`).
 
-## Web-App (GitHub Pages + Supabase) – öffentlich lesbar, nur Besitzer schreibt
+## Web-App (GitHub Pages, nur GitHub – kein Supabase) – oeffentlich lesbar, nur Besitzer schreibt
 
-Im Ordner `docs/` liegt die statische Web-App (plain HTML/CSS/JS + Supabase). **Lesen ist öffentlich – kein Login, kein GitHub für Besucher.** Nur der Besitzer meldet sich an (E-Mail+Passwort) und kann Rezepte per KI erstellen, überarbeiten, löschen und Gruppen anlegen. Alle anderen sehen die Bibliothek schreibgeschützt (suchen, filtern, Favoriten lokal im Browser, PDF-Druck, Cookidoo-URL).
+Im Ordner `docs/` liegt die statische Web-App (plain HTML/CSS/JS). **Lesen ist oeffentlich – kein Login, kein GitHub-Konto fuer Besucher.** Die Bibliothek liegt in einem **oeffentlichen GitHub-Repo** `rezeptbibliothek-bibliothek` (wird beim ersten Besitzer-Login automatisch angelegt). **Nur der Besitzer** meldet sich mit seinem **GitHub-Token** an (Button „Besitzer-Login“) und kann Rezepte per KI erstellen/ueberarbeiten/loeschen sowie Gruppen anlegen. Alle anderen sehen die Bibliothek schreibgeschuetzt (suchen, filtern, Favoriten lokal, PDF-Druck).
 
-**Setup (einmalig):**
-1. Kostenloses Projekt anlegen: [supabase.com](https://supabase.com) → „New project“.
-2. SQL Editor: `docs/schema.sql` ausführen (Owner-E-Mail darin auf deine Adresse ändern!).
-3. Project Settings → API: **Project URL** + **anon public key** in `docs/config.js` eintragen (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `OWNER_EMAIL`). Niemals den service_role-Key ins Frontend!
-4. Authentication → Providers → **Email** aktivieren; unter Authentication → Users deinen Besitzer-Account anlegen (Email + Passwort, „Auto confirm“ an).
-5. Storage: Bucket `cookidoo` ist public (kommt aus schema.sql) – für Cookidoo-Import-URLs.
-6. GitHub: Settings → Pages → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL: `https://<github-user>.github.io/Rezeptbibliothek/`.
+- **Besitzer-Login**: GitHub classic Token, Scope `repo` (github.com/settings/tokens → Tokens (classic) → „Generate new token (classic)“; alternativ Token ueber die gh-CLI im Terminal erzeugen und mit `gh auth token`-Pendant auslesen). Token bleibt lokal im Browser (localStorage), wird nur an api.github.com gesendet.
+- **Schreibschutz**: Schreiben geht nur ueber die GitHub-Contents-API mit dem Token des Repo-Owners – serverseitig erzwungen (oeffentliches Repo, nur Owner hat Schreibrechte). Die App blendet Besitzer-Funktionen ohne Login aus.
+- **KI (Mistral)**: nur Besitzer; Key lokal im Browser (localStorage), nur an api.mistral.ai. Skill `rezepte-thermomix` live aus dem Studio, Fallback `docs/fallback-skill.md`.
+- **Cookidoo-Import per URL**: Rezeptansicht → „Cookidoo-URL“ (nur Besitzer) → oeffentliche `raw.githubusercontent.com`-URL mit schema.org JSON-LD im Library-Repo → in Cookidoo „Meine Kreationen → + → Rezept importieren“ einfuegen.
+- **Gruppen**: `groups.json` + `group`-Feld im Rezept (Front Matter), alles im oeffentlichen Library-Repo.
 
-**Sicherheit:** anon key ist public-safe; Row Level Security (RLS) in `schema.sql` sorgt dafür: SELECT auf Rezepte/Gruppen öffentlich, INSERT/UPDATE/DELETE nur für `is_owner` (wird per DB-Trigger anhand `app_config.owner_email` gesetzt). Mistral-Key des Besitzers bleibt lokal im Browser (localStorage) und wird nur an api.mistral.ai gesendet.
-
-**Cookidoo-Import per URL:** Rezeptansicht → „🔗 Cookidoo-URL“ → öffentlicher Storage-Link mit schema.org JSON-LD → in Cookidoo „Meine Kreationen → + → Rezept importieren“ einfügen.
+**Aktivierung**: Repo → Settings → Pages → Branch `vibe/rezeptbibliothek-app-e0d4f7`, Folder `/docs` → Save. URL: `https://<github-user>.github.io/Rezeptbibliothek/`.
 
 ## Funktionen
 

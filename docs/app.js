@@ -1,15 +1,19 @@
 'use strict';
 
 /* =====================================================================
-   RezeptBibliothek – Web-App (GitHub Pages + Supabase)
-   - Anmeldung: E-Mail + Passwort (oder Magic Link) über Supabase Auth.
-     Eingeladene Benutzer müssen KEIN GitHub-Konto haben.
-   - Nur der Besitzer (OWNER_EMAIL) kann Rezepte erstellen/bearbeiten/löschen
-     und Mitglieder per E-Mail einladen. Mitglieder: nur Lesen (RLS), Favoriten, PDF, Cookidoo-URL.
-   - KI (Mistral) nur für Besitzer; Key lokal im Browser (localStorage).
+   RezeptBibliothek – Web-App (GitHub Pages, statisch, nur GitHub)
+   - Bibliothek liegt in einem ÖFFENTLICHEN GitHub-Repo → LESEN ohne Login.
+   - Nur der Besitzer loggt sich ein (GitHub classic Token, Scope "repo")
+     und kann Rezepte per KI erstellen/bearbeiten/löschen + Gruppen anlegen.
+   - Token nur lokal im Browser (localStorage), nur an api.github.com.
+   - Cookidoo-URL: öffentliche raw.githubusercontent.com-URL aus dem Library-Repo.
    ===================================================================== */
 
-const sb = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const GH = 'https://api.github.com';
+const MISTRAL = 'https://api.mistral.ai';
+const GH_API_VERSION = '2022-11-28';
+const APP_REPO = '2rd7c2w7yy-gif/Rezeptbibliothek';
+const LIBRARY_REPO = 'rezeptbibliothek-bibliothek'; // öffentlich!
 
 const CATEGORIES = ['Alle', 'Allgemein', 'Suppen', 'Hauptgerichte', 'Desserts', 'Backen', 'Getränke'];
 const DEVICES = [
@@ -24,17 +28,19 @@ const deviceById = id => DEVICES.find(d => d.id === id) || DEVICES[1];
 
 /* ---------------- State ---------------- */
 const state = {
+  token: localStorage.getItem('gh_token') || '',
   user: null,
-  profile: null,
   isOwner: false,
+  owner: '',
+  libraryFull: '',
+  libraryReady: false,
   mistralKey: localStorage.getItem('mistral_key') || '',
   recipes: [],
   groups: [],
-  groupMembers: {},
-  favorites: new Set(),
   route: parseRoute(),
   filter: { q: '', category: 'Alle', device: 'Alle' },
   device: localStorage.getItem('rb_device') || 'thermomix',
+  favorites: new Set(JSON.parse(localStorage.getItem('rb_favs') || '[]')),
   fallbackSkill: '',
 };
 
@@ -43,6 +49,8 @@ const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 const nowISO = () => new Date().toISOString();
+const b64enc = s => btoa(unescape(encodeURIComponent(s)));
+const b64dec = s => decodeURIComponent(escape(atob(String(s).replace(/\n/g, ''))));
 const fmtDate = iso => { try { return new Date(iso).toLocaleString('de-DE'); } catch { return ''; } };
 
 function parseRoute() {
@@ -51,10 +59,30 @@ function parseRoute() {
   return { name: parts[0] || 'bibliothek', a: parts[1], b: parts[2] };
 }
 
+/* ---------------- GitHub API (lesen anonym, schreiben mit Token) ---------------- */
+async function gh(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': GH_API_VERSION,
+    ...(body ? { 'Content-Type': 'application/json' } : {}),
+  };
+  if (auth && state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  const res = await fetch(GH + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401 && auth) { App.logout(); throw new Error('Token ungültig – bitte neu anmelden.'); }
+  if (!res.ok) {
+    let msg = res.status + ' ' + res.statusText;
+    try { const e = await res.json(); if (e.message) msg = e.message; } catch {}
+    throw new Error('GitHub: ' + msg);
+  }
+  if (res.status === 204) return null;
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
 /* ---------------- Mistral API (nur Besitzer) ---------------- */
 async function mistral(path, { method = 'GET', body } = {}) {
   if (!state.mistralKey) throw new Error('Kein Mistral-API-Key hinterlegt (Einstellungen).');
-  const res = await fetch('https://api.mistral.ai' + path, {
+  const res = await fetch(MISTRAL + path, {
     method,
     headers: { 'Authorization': `Bearer ${state.mistralKey}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
@@ -64,7 +92,84 @@ async function mistral(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-/* ---------------- Cookidoo (schema.org JSON-LD via öffentlichem Storage) ---------------- */
+/* ---------------- Rezept-Dateiformat ---------------- */
+function yamlVal(v) { return '"' + String(v ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'; }
+function yamlKey(line) { const i = line.indexOf(':'); return [line.slice(0, i).trim(), line.slice(i + 1).trim()]; }
+function yamlUnq(v) { v = v.trim(); if (v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\'); return v; }
+
+function encodeRecipeFile(r) {
+  const fm = ['---', 'id: ' + yamlVal(r.id), 'title: ' + yamlVal(r.title), 'category: ' + yamlVal(r.category),
+    'device: ' + yamlVal(deviceById(r.device).label), 'group: ' + yamlVal(r.group || ''),
+    'created: ' + yamlVal(r.created), 'updated: ' + yamlVal(r.updated), '---'];
+  return fm.join('\n') + '\n\n' + r.markdown + '\n';
+}
+function parseRecipeFile(content) {
+  const m = String(content).match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  const meta = {};
+  if (m) for (const line of m[1].split('\n')) { const [k, v] = yamlKey(line); if (k) meta[k] = yamlUnq(v); }
+  return {
+    id: meta.id || uid(), title: meta.title || 'Ohne Titel', category: meta.category || 'Allgemein',
+    device: (DEVICES.find(d => d.label === meta.device) || DEVICES[1]).id,
+    group: meta.group || '', favorite: false,
+    created: meta.created || nowISO(), updated: meta.updated || nowISO(),
+    markdown: m ? m[2].trim() : String(content),
+  };
+}
+
+/* ---------------- Repo-Dateien ---------------- */
+async function listRecipes(full) {
+  const list = await gh(`/repos/${full}/contents/recipes`, { auth: false });
+  const out = [];
+  for (const f of (list || [])) {
+    if (!f.name.endsWith('.md')) continue;
+    const file = await gh(`/repos/${full}/contents/recipes/${f.name}`, { auth: false });
+    out.push(parseRecipeFile(b64dec(file.content)));
+  }
+  return out;
+}
+async function putFile(full, path, content, message) {
+  if (!state.isOwner) throw new Error('Nur der Besitzer darf schreiben.');
+  let sha;
+  try { sha = (await gh(`/repos/${full}/contents/${path}`)).sha; } catch {}
+  await gh(`/repos/${full}/contents/${path}`, { method: 'PUT', body: { message, content: b64enc(content), ...(sha ? { sha } : {}) } });
+}
+async function deleteFile(full, path, message) {
+  if (!state.isOwner) throw new Error('Nur der Besitzer darf löschen.');
+  const f = await gh(`/repos/${full}/contents/${path}`);
+  await gh(`/repos/${full}/contents/${path}`, { method: 'DELETE', body: { message, sha: f.sha } });
+}
+
+/* ---------------- Bibliothek (öffentliches Repo) ---------------- */
+async function ensureLibrary() {
+  const appRepo = await gh('/repos/' + APP_REPO, { auth: false });
+  state.owner = appRepo.owner.login;
+  state.libraryFull = state.owner + '/' + LIBRARY_REPO;
+  if (state.user) state.isOwner = state.user.login.toLowerCase() === state.owner.toLowerCase();
+  let exists = true;
+  try { await gh('/repos/' + state.libraryFull, { auth: false }); } catch { exists = false; }
+  if (!exists && state.isOwner) {
+    await gh('/user/repos', { method: 'POST', body: { name: LIBRARY_REPO, public: true, auto_init: true, description: 'RezeptBibliothek – öffentliche Bibliothek (nur Besitzer schreibt)' } });
+    await putFile(state.libraryFull, 'recipes/.gitkeep', '', 'init');
+    await putFile(state.libraryFull, 'groups.json', '[]', 'init');
+    await putFile(state.libraryFull, 'cookidoo/.gitkeep', '', 'init');
+    exists = true;
+  }
+  if (exists) {
+    try {
+      state.recipes = await listRecipes(state.libraryFull);
+      state.libraryReady = true;
+      try {
+        const g = await gh(`/repos/${state.libraryFull}/contents/groups.json`, { auth: false });
+        state.groups = JSON.parse(b64dec(g.content));
+      } catch { state.groups = []; }
+    } catch { state.libraryReady = false; }
+  } else {
+    state.libraryReady = false;
+  }
+  for (const r of state.recipes) r.favorite = state.favorites.has(r.id);
+}
+
+/* ---------------- Cookidoo (öffentliche raw-URL im Library-Repo) ---------------- */
 function mdToSchema(r) {
   const lines = (r.markdown || '').split('\n');
   let name = r.title, yield_ = '', section = '';
@@ -84,14 +189,13 @@ function mdToSchema(r) {
   }
   return { name, yield: yield_, ingredients, steps };
 }
-
 function cookidooHTML(r) {
   const s = mdToSchema(r);
   const schema = {
     '@context': 'https://schema.org', '@type': 'Recipe', name: s.name,
     recipeIngredient: s.ingredients,
     recipeInstructions: s.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })),
-    datePublished: r.created_at,
+    datePublished: r.created,
   };
   if (s.yield) schema.recipeYield = s.yield;
   const ing = s.ingredients.map(i => `<li>${esc(i)}</li>`).join('\n');
@@ -107,16 +211,11 @@ ${s.yield ? `<p><b>Portionen:</b> ${esc(s.yield)}</p>` : ''}
 <p><small>Erstellt mit RezeptBibliothek</small></p>
 </body></html>`;
 }
-
 async function cookidooURL(r) {
+  if (!state.isOwner) throw new Error('Nur der Besitzer kann eine Cookidoo-URL erzeugen.');
   const path = `cookidoo/${r.id}.html`;
-  const { error } = await sb.storage.from('cookidoo').upload(path, cookidooHTML(r), { contentType: 'text/html', upsert: true });
-  if (error) throw new Error('Upload fehlgeschlagen: ' + error.message);
-  const { data } = sb.storage.from('cookidoo').getPublicUrl(path);
-  if (state.isOwner && r.cookidoo_path !== path) {
-    await sb.from('recipes').update({ cookidoo_path: path, updated_at: nowISO() }).eq('id', r.id);
-  }
-  return data.publicUrl;
+  await putFile(state.libraryFull, path, cookidooHTML(r), 'Cookidoo-Export: ' + r.title);
+  return `https://raw.githubusercontent.com/${state.libraryFull}/HEAD/${path}`;
 }
 
 /* ---------------- KI ---------------- */
@@ -155,55 +254,33 @@ function extractTitle(markdown) {
   return 'Neues Rezept';
 }
 
-/* ---------------- Daten laden ---------------- */
-async function loadAll() {
-  const [recipes, groups, gm] = await Promise.all([
-    sb.from('recipes').select('*').order('updated_at', { ascending: false }),
-    sb.from('groups').select('*').order('created_at'),
-    sb.from('group_members').select('group_id, user_id'),
-  ]);
-  state.recipes = recipes.data || [];
-  state.groups = groups.data || [];
-  state.favorites = new Set(JSON.parse(localStorage.getItem('rb_favs') || '[]'));
-  state.groupMembers = {};
-  for (const m of (gm.data || [])) (state.groupMembers[m.group_id] ||= []).push(m.user_id);
-  for (const r of state.recipes) r.favorite = state.favorites.has(r.id);
-}
-
-async function onAuth(user) {
-  state.user = user;
-  const email = (user.email || '').toLowerCase();
-  let { data: profile, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (!profile) {
-    await new Promise(r => setTimeout(r, 800));
-    profile = (await sb.from('profiles').select('*').eq('id', user.id).maybeSingle()).data;
-  }
-  // ohne Profil: öffentlich lesbar, is_owner = false
-  state.profile = profile || { is_owner: false };
-  state.isOwner = !!profile?.is_owner;
-  await loadAll();
-  location.hash = '#/bibliothek';
-  App.render();
-}
-
 /* ---------------- App ---------------- */
 window.App = {
 
   async boot() {
-    const { data } = await sb.auth.getSession();
-    if (data.session) await onAuth(data.session.user);
-    else { await loadAll(); App.render(); }
-    sb.auth.onAuthStateChange((_e, session) => {
-      if (session && !state.user) onAuth(session.user);
-      if (!session && state.user) { state.user = null; state.profile = null; state.isOwner = false; App.render(); }
-    });
+    try {
+      if (state.token) {
+        state.user = await gh('/user');
+      }
+      await ensureLibrary();
+    } catch (e) {
+      console.warn('Init:', e.message);
+      localStorage.removeItem('gh_token');
+      state.token = ''; state.user = null; state.isOwner = false;
+      try { await ensureLibrary(); } catch {}
+    }
+    App.render();
   },
 
   openOwnerLogin() {
     App.openModal(`
-      <h3>🔑 Besitzer-Login</h3>
-      <div class="field"><label>E-Mail</label><input id="login-email" type="email" autocomplete="username" placeholder="owner@beispiel.de"></div>
-      <div class="field"><label>Passwort</label><input id="login-password" type="password" autocomplete="current-password" placeholder="••••••"></div>
+      <h3>🔑 Besitzer-Login (GitHub-Token)</h3>
+      <div class="field">
+        <label>GitHub Personal Access Token</label>
+        <input id="login-token" type="password" placeholder="ghp_…" autocomplete="off">
+        <div class="hint">Nur du brauchst einen Token. Erstellen: <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a> → „Tokens (classic)“ → Scope <b>☑ repo</b> → „Generate token“. Alternativ im Terminal: <code>gh auth login</code> + <code>gh auth token</code>.<br>
+        Der Token bleibt lokal in diesem Browser (localStorage) und wird nur an api.github.com gesendet.</div>
+      </div>
       <div id="login-status" class="status"></div>
       <div id="login-error" class="error"></div>
       <div class="actions">
@@ -211,26 +288,39 @@ window.App = {
         <button class="btn primary" onclick="App.login()">Anmelden</button>
       </div>
     `);
-    $('#login-email').focus();
+    $('#login-token').focus();
   },
 
   async login() {
-    const email = $('#login-email').value.trim();
-    const password = $('#login-password').value;
+    const token = $('#login-token').value.trim();
+    if (!token) { $('#login-error').textContent = 'Bitte Token eingeben.'; return; }
     $('#login-status').innerHTML = '<span class="spinner"></span>Anmeldung …';
     $('#login-error').textContent = '';
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) { $('#login-status').textContent = ''; $('#login-error').textContent = 'Anmeldung fehlgeschlagen: ' + error.message; return; }
-    App.closeModal();
-    // onAuthStateChange übernimmt onAuth()
+    const prev = state.token;
+    state.token = token;
+    try {
+      state.user = await gh('/user');
+      localStorage.setItem('gh_token', token);
+      await ensureLibrary();
+      if (!state.isOwner) {
+        await App.logout();
+        $('#login-error').textContent = 'Nur der Besitzer (@' + state.owner + ') darf sich anmelden.';
+        $('#login-status').textContent = '';
+        return;
+      }
+      App.closeModal();
+      App.render();
+    } catch (e) {
+      state.token = prev;
+      $('#login-status').textContent = '';
+      $('#login-error').textContent = e.message;
+    }
   },
 
   async logout() {
-    localStorage.removeItem('mistral_key');
-    state.mistralKey = '';
-    await sb.auth.signOut();
-    state.user = null; state.profile = null; state.isOwner = false;
-    location.hash = '';
+    localStorage.removeItem('gh_token');
+    state.token = ''; state.user = null; state.isOwner = false;
+    await ensureLibrary();
     App.render();
   },
 
@@ -242,11 +332,13 @@ window.App = {
     const listEl = $('#recipe-list');
     if (!listEl) return;
     const { q, category, device } = state.filter;
-    let items = state.route.name === 'gruppe' ? state.recipes.filter(r => r.group_id === state.route.a) : state.recipes.filter(r => !r.group_id);
+    let items = state.route.name === 'gruppe'
+      ? state.recipes.filter(r => r.group === state.route.a)
+      : state.recipes.filter(r => !r.group);
     if (q) items = items.filter(r => (r.title + ' ' + r.markdown).toLowerCase().includes(q.toLowerCase()));
     if (category !== 'Alle') items = items.filter(r => r.category === category);
     if (device !== 'Alle') items = items.filter(r => r.device === device);
-    items = [...items].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    items = [...items].sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
     if (!items.length) { listEl.innerHTML = '<div class="empty">Keine Rezepte gefunden.</div>'; return; }
     listEl.innerHTML = items.map(r => `
       <div class="card" onclick="App.openRecipe('${esc(r.id)}')">
@@ -254,7 +346,7 @@ window.App = {
         <div class="meta">
           <span class="badge">${esc(r.category)}</span>
           <span class="badge device">${esc(deviceById(r.device).short)}</span>
-          <span>${esc(fmtDate(r.updated_at))}</span>
+          <span>${esc(fmtDate(r.updated))}</span>
         </div>
       </div>`).join('');
   },
@@ -272,20 +364,22 @@ window.App = {
     const ownerButtons = state.isOwner ? `
         <button class="btn small" onclick="App.openAI('${esc(r.id)}')">Mit KI überarbeiten</button>
         <button class="btn small danger" onclick="App.deleteRecipe('${esc(r.id)}')">Löschen</button>` : '';
+    const cookidooBtn = state.isOwner
+      ? `<button class="btn small" onclick="App.openCookidoo('${esc(r.id)}')">🔗 Cookidoo-URL</button>` : '';
     main.innerHTML = `
       <div class="no-print detail-head">
         <button class="btn small" onclick="location.hash='${base}'">← Zurück</button>
         <h2>${r.favorite ? '★ ' : ''}${esc(r.title)}</h2>
         <button class="btn small" onclick="App.toggleFav('${esc(r.id)}')">${r.favorite ? '★ Favorit' : '☆ Favorit'}</button>
         <button class="btn small" onclick="App.printRecipe()">Als PDF drucken</button>
-        <button class="btn small" onclick="App.openCookidoo('${esc(r.id)}')">🔗 Cookidoo-URL</button>
+        ${cookidooBtn}
         ${ownerButtons}
       </div>
       <div class="meta" style="margin-bottom:10px">
         <span class="badge">${esc(r.category)}</span>
         <span class="badge device">${esc(deviceById(r.device).label)}</span>
-        <span class="badge">${esc(fmtDate(r.updated_at))}</span>
-        ${state.isOwner ? '' : '<span class="badge">schreibgeschützt</span>'}
+        <span class="badge">${esc(fmtDate(r.updated))}</span>
+        ${state.isOwner ? '' : '<span class="badge">öffentlich · nur Lesen</span>'}
       </div>
       <div id="print-area" class="article">${renderMarkdown(r.markdown)}</div>
     `;
@@ -293,38 +387,27 @@ window.App = {
 
   async saveRecipe(recipe) {
     if (!state.isOwner) { alert('Nur der Besitzer kann Rezepte erstellen/bearbeiten.'); return; }
-    const row = {
-      title: recipe.title, category: recipe.category, device: recipe.device,
-      markdown: recipe.markdown, group_id: recipe.group_id || null,
-      updated_at: nowISO(),
-    };
-    let res;
-    if (recipe.id && state.recipes.some(x => x.id === recipe.id)) {
-      res = await sb.from('recipes').update(row).eq('id', recipe.id).select().single();
-    } else {
-      row.created_by = state.user.id;
-      row.id = recipe.id || uid();
-      res = await sb.from('recipes').insert(row).select().single();
-    }
-    if (res.error) { alert('Speichern fehlgeschlagen: ' + res.error.message); return; }
-    await loadAll();
+    recipe.updated = nowISO();
+    if (!recipe.created) recipe.created = nowISO();
+    if (!recipe.id) recipe.id = uid();
+    await putFile(state.libraryFull, `recipes/${recipe.id}.md`, encodeRecipeFile(recipe), 'Rezept speichern: ' + recipe.title);
+    await ensureLibrary();
     App.render();
   },
 
   async deleteRecipe(id) {
     if (!state.isOwner) { alert('Nur der Besitzer kann löschen.'); return; }
     if (!confirm('Rezept wirklich löschen?')) return;
-    await sb.from('recipes').delete().eq('id', id);
-    await loadAll();
+    await deleteFile(state.libraryFull, `recipes/${id}.md`, 'Rezept löschen');
+    await ensureLibrary();
     history.back();
     App.render();
   },
 
   async toggleFav(id) {
-    const favs = state.favorites;
-    if (favs.has(id)) favs.delete(id); else favs.add(id);
-    localStorage.setItem('rb_favs', JSON.stringify([...favs]));
-    for (const r of state.recipes) r.favorite = favs.has(r.id);
+    if (state.favorites.has(id)) state.favorites.delete(id); else state.favorites.add(id);
+    localStorage.setItem('rb_favs', JSON.stringify([...state.favorites]));
+    for (const r of state.recipes) r.favorite = state.favorites.has(r.id);
     App.render();
   },
 
@@ -344,12 +427,11 @@ window.App = {
   async createGroup() {
     const name = $('#group-name').value.trim();
     if (!name) { $('#group-error').textContent = 'Name eingeben.'; return; }
-    const { data, error } = await sb.from('groups').insert({ name, created_by: state.user.id }).select().single();
-    if (error) { $('#group-error').textContent = error.message; return; }
-    await sb.from('group_members').insert({ group_id: data.id, user_id: state.user.id });
+    const g = { id: uid(), name, created: nowISO() };
+    state.groups.push(g);
+    await putFile(state.libraryFull, 'groups.json', JSON.stringify(state.groups, null, 1), 'Gruppe: ' + name);
     App.closeModal();
-    await loadAll();
-    location.hash = '#/gruppe/' + data.id;
+    location.hash = '#/gruppe/' + g.id;
     App.render();
   },
 
@@ -358,7 +440,7 @@ window.App = {
     const existing = existingId ? state.recipes.find(r => r.id === existingId) : null;
     const dev = DEVICES.map(d => `<button type="button" class="${state.device === d.id ? 'active' : ''}" onclick="App.setDevice('${d.id}')">${esc(d.short)}</button>`).join('');
     const groupOptions = ['<option value="">Bibliothek</option>']
-      .concat(state.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`)).join('');
+      .concat(state.groups.map(g => `<option value="${g.id}" ${existing && existing.group === g.id ? 'selected' : ''}>${esc(g.name)}</option>`)).join('');
     App.openModal(`
       <h3>${existing ? 'Rezept mit KI überarbeiten' : 'Neues Rezept mit KI'}</h3>
       <div class="seg">${dev}</div>
@@ -367,7 +449,7 @@ window.App = {
         <textarea id="ai-wish" rows="4" placeholder="${existing ? 'z. B. „weniger scharf, mehr Knoblauch“' : 'z. B. „Eine vegane Linsensuppe für 4 Personen, scharf, in 30 Minuten“'}"></textarea>
       </div>
       <div class="field"><label>Kategorie</label>
-        <select id="ai-category">${CATEGORIES.filter(c => c !== 'Alle').map(c => `<option>${c}</option>`).join('')}</select></div>
+        <select id="ai-category">${CATEGORIES.filter(c => c !== 'Alle').map(c => `<option ${existing && existing.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
       <div class="field"><label>Ziel</label><select id="ai-group">${groupOptions}</select></div>
       <div id="ai-status" class="status"></div>
       <div id="ai-error" class="error"></div>
@@ -383,7 +465,7 @@ window.App = {
     const wish = $('#ai-wish').value.trim();
     if (!wish) { $('#ai-error').textContent = 'Bitte Wunsch eingeben.'; return; }
     const category = $('#ai-category').value;
-    const groupId = $('#ai-group').value || null;
+    const group = $('#ai-group').value || '';
     const device = deviceById(state.device);
     $('#ai-error').textContent = '';
     $('#ai-status').innerHTML = '<span class="spinner"></span>Skill wird geladen …';
@@ -401,9 +483,9 @@ window.App = {
         markdown = await aiChat(systemPrompt, wish);
       }
       const recipe = {
-        id: existingId || null,
-        title: extractTitle(markdown), category, device: device.id,
-        markdown, group_id: groupId,
+        id: existingId || null, title: extractTitle(markdown), category, device: device.id,
+        group, created: existingId ? state.recipes.find(r => r.id === existingId).created : nowISO(),
+        markdown,
       };
       $('#ai-status').textContent = 'Fertig – speichern?';
       $('#ai-preview').innerHTML = `<div class="article">${renderMarkdown(markdown)}</div>
@@ -428,7 +510,7 @@ window.App = {
   async openCookidoo(id) {
     const r = state.recipes.find(x => x.id === id);
     if (!r) return;
-    if (!confirm('Cookidoo-Import erzeugt eine ÖFFENTLICHE URL für dieses eine Rezept. Fortfahren?')) return;
+    if (!confirm('Cookidoo-URL erzeugen (öffentlich im Library-Repo). Fortfahren?')) return;
     App.openModal(`<h3>Cookidoo-Import</h3><div id="cookidoo-status" class="status"><span class="spinner"></span>URL wird erzeugt …</div><div id="cookidoo-result"></div>`);
     try {
       const url = await cookidooURL(r);
@@ -436,7 +518,7 @@ window.App = {
       $('#cookidoo-result').innerHTML = `
         <div class="field"><label>Import-URL (in Cookidoo einfügen)</label>
         <input id="cookidoo-url" readonly value="${esc(url)}" onclick="this.select()"></div>
-        <div class="hint">Ablauf: <a href="https://cookidoo.de" target="_blank" rel="noopener">cookidoo.de</a> → „Meine Kreationen“ → „+“ → „Rezept importieren“ → URL einfügen → „Importieren". TM6/TM7-Einstellungen danach manuell ergänzen.</div>
+        <div class="hint">Ablauf: <a href="https://cookidoo.de" target="_blank" rel="noopener">cookidoo.de</a> → „Meine Kreationen“ → „+“ → „Rezept importieren“ → URL einfügen → „Importieren“. TM6/TM7-Einstellungen danach manuell ergänzen.</div>
         <div class="actions">
           <button class="btn primary" onclick="navigator.clipboard.writeText($('#cookidoo-url').value);this.textContent='Kopiert!'">URL kopieren</button>
           <button class="btn" onclick="App.closeModal()">Schließen</button>
@@ -452,7 +534,7 @@ window.App = {
     App.openModal(`
       <h3>Einstellungen</h3>
       <div class="field">
-        <label>Mistral API-Key (lokal im Browser gespeichert; nur der Besitzer kann KI-Rezepte erstellen)</label>
+        <label>Mistral API-Key (lokal im Browser; nur der Besitzer nutzt die KI)</label>
         <input id="mistral-key" type="password" value="${esc(state.mistralKey)}" placeholder="sk-…">
         <div class="hint">Key erstellen: <a href="https://console.mistral.ai" target="_blank" rel="noopener">console.mistral.ai</a> → API Keys. Wird nur an api.mistral.ai gesendet.</div>
       </div>
@@ -470,7 +552,6 @@ window.App = {
   },
 
   printRecipe() { window.print(); },
-
   openModal(html) { $('#modal-root').innerHTML = `<div class="modal-backdrop" onclick="if(event.target===this)App.closeModal()"><div class="modal">${html}</div></div>`; },
   closeModal() { $('#modal-root').innerHTML = ''; },
 
@@ -481,7 +562,7 @@ window.App = {
     if (r.name === 'gruppe' && r.a) {
       if (r.b) App.showRecipeDetail(r.b);
       else App.renderList();
-    } else if ((r.name === 'bibliothek') && r.a) {
+    } else if (r.name === 'bibliothek' && r.a) {
       App.showRecipeDetail(r.a);
     } else if (r.name === 'gruppen') {
       App.renderList();
@@ -501,22 +582,20 @@ function renderMarkdown(md) {
 }
 
 /* ---------------- Views ---------------- */
-function viewLogin() { return ''; } // Landing entfällt – Lesen ist öffentlich, Login über Topbar-Button
-
 function viewShell() {
   const r = state.route;
   const groupsNav = state.groups.map(g => `
     <button class="nav-item ${r.name === 'gruppe' && r.a === g.id ? 'active' : ''}" onclick="location.hash='#/gruppe/${g.id}'">
-      👥 ${esc(g.name)} (${(state.groupMembers[g.id] || []).length})
+      👥 ${esc(g.name)}
     </button>`).join('');
   const newGroupBtn = state.isOwner ? `<button class="btn small" style="margin-top:8px" onclick="App.openGroupModal()">+ Neue Gruppe</button>` : '';
   return `
   <div class="topbar no-print">
     <span class="logo">🍲 RezeptBibliothek</span>
-    ${state.isOwner ? '<span class="badge">Besitzer</span>' : '<span class="badge">nur Lesen</span>'}
+    ${state.isOwner ? '<span class="badge">Besitzer</span>' : '<span class="badge">öffentlich · nur Lesen</span>'}
     <span class="spacer"></span>
     ${state.user
-      ? `<span class="user">${esc(state.user.email)}</span>
+      ? `<span class="user">${esc(state.user.login)}</span>
          <button class="btn small" onclick="App.openSettings()">⚙️</button>
          <button class="btn small" onclick="App.logout()">Abmelden</button>`
       : `<button class="btn small" onclick="App.openOwnerLogin()">🔑 Besitzer-Login</button>`}
@@ -524,7 +603,7 @@ function viewShell() {
   <div class="layout">
     <div class="sidebar no-print">
       <h3>Bibliothek</h3>
-      <button class="nav-item ${r.name === 'bibliothek' ? 'active' : ''}" onclick="App.nav('bibliothek')">📖 Bibliothek (${state.recipes.filter(x => !x.group_id).length})</button>
+      <button class="nav-item ${r.name === 'bibliothek' ? 'active' : ''}" onclick="App.nav('bibliothek')">📖 Bibliothek (${state.recipes.filter(x => !x.group).length})</button>
       <h3>Gruppen</h3>
       ${groupsNav || '<div class="hint">Keine Gruppen.</div>'}
       ${newGroupBtn}
@@ -535,12 +614,15 @@ function viewShell() {
 
 function viewMain() {
   const r = state.route;
+  if (!state.libraryReady) {
+    return `<div class="empty">Die Bibliothek wird gerade vom Besitzer angelegt …<br>
+      Falls das bleibt: Repo <code>${esc(LIBRARY_REPO)}</code> von @${esc(state.owner || '?')} prüfen.</div>`;
+  }
   if (r.name === 'gruppen') {
     if (!state.groups.length) return '<div class="empty">Keine Gruppen.</div>';
     return `<h2>Gruppen</h2><div class="recipe-list">` + state.groups.map(g => `
       <div class="card" onclick="location.hash='#/gruppe/${g.id}'">
         <div class="title">👥 ${esc(g.name)}</div>
-        <div class="meta"><span class="badge">${(state.groupMembers[g.id] || []).length} Mitglieder</span></div>
       </div>`).join('') + '</div>';
   }
   if (r.name === 'gruppe') {
