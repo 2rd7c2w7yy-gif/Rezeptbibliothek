@@ -216,6 +216,13 @@ async function aiChat(systemPrompt, userMessage) {
   if (content.startsWith('```')) content = content.replace(/^```[a-z]*\n/i, '').replace(/```$/, '').trim();
   return content;
 }
+/* Automatischer 2. KI-Schritt: kritisches Prüfen & Optimieren eines Rezepts */
+async function reviewRecipe(markdown, device, skill) {
+  const sys = buildSystemPrompt(skill.body, device) + "\n\n# Zusatzaufgabe: Kritische Rezeptprüfung\nDu bist ein erfahrener Rezept-Lektor. Prüfe das Rezept kritisch und optimiere es, bevor du es zurückgibst.\n";
+  const user = "Prüfe das folgende Rezept kritisch und optimiere es. Achte besonders auf:\n- Mengenverhältnisse, Hydration (Wasser/Flüssigkeit zu Mehl), Salzgehalt (ca. 2 %), realistische Portionen\n- Garzeiten, Temperaturen und TM-Stufen/Rührstufen: plausibel, sicher, nicht zu hoch/zu lange\n- Gehzeiten und Gärphasen realistisch; Abkühl-/Ruhezeiten\n- Zutatenliste vollständig und konsistent zur Zubereitung (jede Zutat kommt vor, keine Phantom-Zutaten)\n- Klare, kurze Schritte ohne Widersprueche\nAntworte AUSSCHLIESSLICH mit dem verbesserten vollstaendigen Rezept als Markdown (Titel als H1, gleiche Struktur). Wenn alles passt, gib das Rezept unverändert zurück.\n\nRezept:\n" + markdown;
+  return aiChat(sys, user);
+}
+
 function extractTitle(markdown) {
   for (const line of markdown.split('\n')) {
     const t = line.trim();
@@ -460,6 +467,8 @@ window.App = {
         $('#ai-status').textContent = 'Rezept wird erstellt … (' + skill.source + ')';
         markdown = await aiChat(systemPrompt, wish);
       }
+      $('#ai-status').textContent = 'Rezept wird kritisch geprüft & optimiert …';
+      markdown = await reviewRecipe(markdown, device, skill);
       const recipe = {
         id: existingId || null, title: extractTitle(markdown), category, device: device.id,
         group, created: existingId ? state.recipes.find(r => r.id === existingId).created : nowISO(),
@@ -547,6 +556,8 @@ window.App = {
           markdown = await aiChatVision(systemPrompt, userText, images, 'pixtral-12b-2409');
         } else throw e;
       }
+      $('#photo-status').textContent = 'Rezept wird kritisch geprüft & optimiert …';
+      markdown = await reviewRecipe(markdown, device, skill);
       const recipe = {
         id: null, title: extractTitle(markdown), category, device: device.id,
         group: state.route.name === 'gruppe' ? state.route.a : '',
